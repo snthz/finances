@@ -3,7 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { categories, emailRules } from "@/db/schema";
 import type { Locale } from "@/i18n/config";
-import { PRESET_RULES, PRESETS_VERSION } from "@/lib/email/presets";
+import { PRESET_RULES, PRESET_RULES_V1, PRESETS_VERSION } from "@/lib/email/presets";
 import { getSetting, KEYS, setSetting } from "@/lib/settings";
 
 // Datos iniciales de cada usuario nuevo: categorías, reglas genéricas y reglas de bancos conocidos.
@@ -65,10 +65,43 @@ function findCategoryId(cats: { id: number; name: string }[], esName: string) {
   return cats.find((c) => names.has(c.name))?.id ?? null;
 }
 
+// Campos de texto de una regla que una versión nueva de los presets puede corregir
+const PRESET_FIELDS = [
+  "fromPattern",
+  "subjectPattern",
+  "bodyPattern",
+  "amountRegex",
+  "merchantRegex",
+  "identifierRegex",
+  "currencyRegex",
+  "dateRegex",
+  "dedupeRegex",
+  "defaultCurrency",
+] as const;
+
+/** v1 → v2 (más monedas): actualiza cada campo sólo si sigue igual a como se instaló, para no pisar ediciones. */
+async function upgradePresetsFromV1(userId: number) {
+  const rows = await db
+    .select()
+    .from(emailRules)
+    .where(and(eq(emailRules.userId, userId), eq(emailRules.source, "preset")));
+  for (const row of rows) {
+    const next = PRESET_RULES.find((p) => p.name === row.name);
+    const prev = PRESET_RULES_V1.find((p) => p.name === row.name);
+    if (!next || !prev) continue;
+    const set: Partial<Record<(typeof PRESET_FIELDS)[number], string | null>> = {};
+    for (const f of PRESET_FIELDS) {
+      if ((row[f] ?? null) === (prev[f] ?? null) && (prev[f] ?? null) !== (next[f] ?? null)) set[f] = next[f] ?? null;
+    }
+    if (Object.keys(set).length) await db.update(emailRules).set(set).where(and(eq(emailRules.id, row.id), eq(emailRules.userId, userId)));
+  }
+}
+
 /** Instala las reglas incluidas para bancos conocidos (una vez por versión; las borradas no vuelven). */
 export async function installPresets(userId: number) {
   const installed = Number((await getSetting(KEYS.presetsVersion, userId)) ?? 0);
   if (installed >= PRESETS_VERSION) return 0;
+  if (installed === 1) await upgradePresetsFromV1(userId);
   const [existing, cats] = await Promise.all([
     db.select({ name: emailRules.name }).from(emailRules).where(eq(emailRules.userId, userId)),
     db.select({ id: categories.id, name: categories.name }).from(categories).where(eq(categories.userId, userId)),

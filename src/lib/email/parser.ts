@@ -1,6 +1,8 @@
 // Motor de reglas para extraer transacciones de correos bancarios.
 // Funciones puras: no tocan la base de datos.
 
+import { CURRENCY_CATALOG } from "@/lib/currency-catalog";
+
 export type EmailInput = {
   from: string;
   subject: string;
@@ -149,18 +151,46 @@ function aliasEntries(currencies: CurrencyAliases[]): AliasEntry[] {
   return list.sort((x, y) => y.alias.length - x.alias.length);
 }
 
+// Símbolos y códigos del catálogo ("Q", "€", "C$", "EUR"…), para reconocer monedas que el usuario aún no configuró.
+// Sin las palabras ("lempiras", "euros"): sólo las formas que acompañan a un monto
+const CATALOG_ALIASES: CurrencyAliases[] = CURRENCY_CATALOG.map((c) => ({
+  code: c.code,
+  aliases: c.aliases.filter((a) => a === c.code || !/^[\p{L}\s]{4,}$/u.test(a)),
+}));
+const catalogEntries = aliasEntries(CATALOG_ALIASES);
+const catalogCodes = new Set(CURRENCY_CATALOG.map((c) => c.code));
+
+/**
+ * Texto de moneda → código con los alias del usuario (deciden a quién pertenece "$" o "L") y los
+ * del catálogo ("Q" → GTQ, "€" → EUR); si nada coincide, cualquier código ISO de 3 letras.
+ */
 export function normalizeCurrency(raw: string | null | undefined, currencies: CurrencyAliases[]): string | null {
   if (!raw) return null;
-  for (const e of aliasEntries(currencies)) if (e.re.test(raw)) return e.code;
+  // Gana el alias más largo ("C$" antes que el "$" del usuario); a igual largo, el del usuario
+  let best: AliasEntry | null = null;
+  for (const e of [...aliasEntries(currencies), ...catalogEntries]) if ((!best || e.alias.length > best.alias.length) && e.re.test(raw)) best = e;
+  if (best) return best.code;
   const trimmed = raw.trim().toUpperCase();
   return /^[A-Z]{3}$/.test(trimmed) ? trimmed : null;
 }
+
+/**
+ * Alternativa regex con todas las monedas del catálogo (sin grupo), para reglas guardadas como texto:
+ * no usa \p{…} porque esas reglas también deben compilar sin la bandera "u".
+ */
+export const CURRENCY_TOKEN = Array.from(
+  new Set([...CATALOG_ALIASES.flatMap((c) => c.aliases), "LPS", "$"]),
+)
+  .sort((a, b) => b.length - a.length)
+  .map((a) => (/^[A-Za-z]/.test(a) ? "\\b" : "") + escapeRe(a) + (/[A-Za-z]$/.test(a) ? "(?![A-Za-z])" : ""))
+  .join("|");
 
 const NUM = String.raw`(\d{1,3}(?:[.,\s]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)`;
 const GENERIC_CODES = ["USD", "EUR", "HNL", "DOP", "MXN", "GTQ", "NIO", "CRC", "COP", "PAB", "PEN"];
 
 function currencyPattern(currencies: CurrencyAliases[]) {
-  const entries = aliasEntries(currencies.length ? currencies : GENERIC_CODES.map((code) => ({ code, aliases: [] })));
+  const base = currencies.length ? currencies : GENERIC_CODES.map((code) => ({ code, aliases: [] }));
+  const entries = aliasEntries([...base, ...CATALOG_ALIASES]);
   const parts = entries.map((e) => {
     const pre = /^[\p{L}\d]/u.test(e.alias) ? String.raw`(?<![\p{L}\d])` : "";
     return pre + escapeRe(e.alias);
@@ -227,8 +257,8 @@ export function extract(rule: RuleLike, email: EmailInput, currencies: CurrencyA
     const after = text.slice(amountHit.index + amountHit.match.length, amountHit.index + amountHit.match.length + 12);
     const m = after.match(/^\s*(\S+)/);
     const code = m ? normalizeCurrency(m[1], currencies) : null;
-    // Sólo se acepta si es una moneda configurada (evita tomar palabras de 3 letras como moneda)
-    if (code && currencies.some((c) => c.code === code)) currency = code;
+    // Sólo monedas configuradas o del catálogo (evita tomar palabras de 3 letras como moneda)
+    if (code && (currencies.some((c) => c.code === code) || catalogCodes.has(code))) currency = code;
   }
   if (!currency && rule.defaultCurrency) currency = rule.defaultCurrency;
 
