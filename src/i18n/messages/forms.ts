@@ -1,0 +1,121 @@
+// Textos de los componentes compartidos (formularios, selects, sheets, gráficas). `en` es la fuente de verdad; `es` debe tener la misma forma.
+
+const en = {
+  confirmAgain: "Sure? Tap again",
+  select: {
+    placeholder: "Select…",
+    search: "Search…",
+    noResults: "No results",
+  },
+  password: {
+    show: "Show password",
+    hide: "Hide password",
+  },
+  avatar: {
+    title: "Profile photo",
+    description: "Upload a photo or pick a preset.",
+    change: "Change photo",
+    upload: "Upload photo",
+    remove: "Remove",
+    readError: "Couldn't read that image. Try a JPG or PNG.",
+    presets: "Presets",
+    initials: "Initials",
+    yourPhoto: "Your photo",
+    icons: {
+      cat: "Cat",
+      dog: "Dog",
+      panda: "Panda",
+      rabbit: "Rabbit",
+      bird: "Bird",
+      fish: "Fish",
+      squirrel: "Squirrel",
+      turtle: "Turtle",
+      snail: "Snail",
+      ghost: "Ghost",
+      rocket: "Rocket",
+      zap: "Lightning",
+      flame: "Flame",
+      leaf: "Leaf",
+      mountain: "Mountain",
+      sun: "Sun",
+      moon: "Moon",
+      coffee: "Coffee",
+    } as Record<string, string>,
+  },
+  monthNav: {
+    prev: "Previous month",
+    next: "Next month",
+    current: "Back to current month",
+  },
+  currencyTabs: {
+    all: "All in {base}",
+    allTitle: "Everything converted to {base}",
+  },
+  charts: {
+    income: "Income",
+    expenses: "Expenses",
+    net: "Net",
+    dayOf: "{month} {day}",
+  },
+};
+
+const es: typeof en = {
+  confirmAgain: "¿Seguro? Toca de nuevo",
+  select: {
+    placeholder: "Selecciona…",
+    search: "Buscar…",
+    noResults: "Sin resultados",
+  },
+  password: {
+    show: "Mostrar contraseña",
+    hide: "Ocultar contraseña",
+  },
+  avatar: {
+    title: "Foto de perfil",
+    description: "Sube una foto o elige una predeterminada.",
+    change: "Cambiar foto",
+    upload: "Subir foto",
+    remove: "Quitar",
+    readError: "No se pudo leer esa imagen. Prueba con JPG o PNG.",
+    presets: "Predeterminados",
+    initials: "Iniciales",
+    yourPhoto: "Tu foto",
+    icons: {
+      cat: "Gato",
+      dog: "Perro",
+      panda: "Panda",
+      rabbit: "Conejo",
+      bird: "Pájaro",
+      fish: "Pez",
+      squirrel: "Ardilla",
+      turtle: "Tortuga",
+      snail: "Caracol",
+      ghost: "Fantasma",
+      rocket: "Cohete",
+      zap: "Rayo",
+      flame: "Llama",
+      leaf: "Hoja",
+      mountain: "Montaña",
+      sun: "Sol",
+      moon: "Luna",
+      coffee: "Café",
+    },
+  },
+  monthNav: {
+    prev: "Mes anterior",
+    next: "Mes siguiente",
+    current: "Volver al mes actual",
+  },
+  currencyTabs: {
+    all: "Todo en {base}",
+    allTitle: "Todo convertido a {base}",
+  },
+  charts: {
+    income: "Ingresos",
+    expenses: "Gastos",
+    net: "Neto",
+    dayOf: "{day} de {month}",
+  },
+};
+
+export default { en, es };

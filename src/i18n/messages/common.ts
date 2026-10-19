@@ -1,0 +1,103 @@
+// Textos compartidos por toda la app. `en` es la fuente de verdad; `es` debe tener la misma forma.
+
+const en = {
+  appName: "Finances",
+  appDescription: "Personal finances",
+  manifestName: "Finances",
+  manifestDescription: "Personal expenses, income and stats",
+  titleSuffix: "Finances",
+  nav: {
+    home: "Overview",
+    transactions: "Transactions",
+    payments: "Payments",
+    budget: "Budget",
+    accounts: "Accounts",
+    categories: "Categories",
+    email: "Emails",
+    settings: "Settings",
+    newTransaction: "New transaction",
+    newShort: "New",
+    logout: "Sign out",
+  },
+  actions: {
+    save: "Save",
+    saving: "Saving…",
+    cancel: "Cancel",
+    delete: "Delete",
+    deleting: "Deleting…",
+    edit: "Edit",
+    add: "Add",
+    close: "Close",
+    confirm: "Confirm",
+    back: "Back",
+    search: "Search",
+  },
+  errors: {
+    invalidData: "Invalid data",
+  },
+  accountTypes: {
+    bank: "Bank account",
+    credit_card: "Credit card",
+    debit_card: "Debit card",
+    cash: "Cash",
+    wallet: "Digital wallet",
+    other: "Other",
+  } as Record<string, string>,
+  txTypes: {
+    expense: "Expense",
+    income: "Income",
+    transfer: "Transfer",
+  } as Record<string, string>,
+};
+
+const es: typeof en = {
+  appName: "Finances",
+  appDescription: "Finanzas personales",
+  manifestName: "Finances",
+  manifestDescription: "Gastos, ingresos y estadísticas personales",
+  titleSuffix: "Finances",
+  nav: {
+    home: "Resumen",
+    transactions: "Movimientos",
+    payments: "Pagos",
+    budget: "Presupuesto",
+    accounts: "Cuentas",
+    categories: "Categorías",
+    email: "Correos",
+    settings: "Ajustes",
+    newTransaction: "Nuevo movimiento",
+    newShort: "Nuevo",
+    logout: "Cerrar sesión",
+  },
+  actions: {
+    save: "Guardar",
+    saving: "Guardando…",
+    cancel: "Cancelar",
+    delete: "Eliminar",
+    deleting: "Eliminando…",
+    edit: "Editar",
+    add: "Agregar",
+    close: "Cerrar",
+    confirm: "Confirmar",
+    back: "Volver",
+    search: "Buscar",
+  },
+  errors: {
+    invalidData: "Datos inválidos",
+  },
+  accountTypes: {
+    bank: "Cuenta bancaria",
+    credit_card: "Tarjeta de crédito",
+    debit_card: "Tarjeta de débito",
+    cash: "Efectivo",
+    wallet: "Billetera digital",
+    other: "Otra",
+  },
+  txTypes: {
+    expense: "Gasto",
+    income: "Ingreso",
+    transfer: "Transferencia",
+  },
+};
+
+export default { en, es };
