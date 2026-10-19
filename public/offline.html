@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Offline · Finances</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #f9f9f7; --ink: #0b0b0b; --muted: #52514e; --accent: #2a78d6; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0d0d0d; --ink: #f0efec; --muted: #c3c2b7; --accent: #3987e5; } }
+      body { margin: 0; min-height: 100dvh; display: grid; place-items: center; background: var(--bg); color: var(--ink);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif; text-align: center; padding: 16px; }
+      img { width: 56px; height: 56px; }
+      p { color: var(--muted); font-size: 14px; }
+      button { margin-top: 8px; border: 0; border-radius: 8px; padding: 10px 16px; background: var(--accent); color: #fff; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icons/icon-192.png" alt="" />
+      <h1 style="font-size: 18px" data-es="Sin conexión">You're offline</h1>
+      <p data-es="No hay internet. Tus datos están en el servidor y se mostrarán al reconectar.">No internet connection. Your data is safe on the server and will show up once you reconnect.</p>
+      <button onclick="location.reload()" data-es="Reintentar">Try again</button>
+    </main>
+    <script>
+      // El service worker no conoce el idioma de Ajustes: se usa el del último render o el del navegador
+      var lang = navigator.language || "en";
+      try { lang = localStorage.getItem("fin_lang") || lang; } catch (e) {}
+      if (lang.slice(0, 2) === "es") {
+        document.documentElement.lang = "es";
+        document.title = "Sin conexión · Finances";
+        document.querySelectorAll("[data-es]").forEach(function (el) { el.textContent = el.getAttribute("data-es"); });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,179 @@
+@import "tailwindcss";
+
+/* Paleta monocromática. Sólo `bad` y `warn` conservan color (errores y avisos). */
+:root {
+  color-scheme: light;
+  --bg: #f7f7f7;
+  --surface: #ffffff;
+  --surface-2: #f1f1f1;
+  --surface-3: #e7e7e7;
+  --ink: #0a0a0a;
+  --ink-2: #525252;
+  --muted: #8f8f8f;
+  --line: #e5e5e5;
+  --line-strong: #d4d4d4;
+  --accent: #0a0a0a;
+  --accent-ink: #ffffff;
+  --good: #0a0a0a;
+  --bad: #dc2626;
+  --warn: #b45309;
+  --series-income: #b5b5b5;
+  --series-expense: #0a0a0a;
+  --series-1: #0a0a0a;
+  --overlay: rgba(10, 10, 10, 0.35);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -8px rgba(0, 0, 0, 0.08);
+  --shadow-pop: 0 12px 40px -8px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #090909;
+    --surface: #131313;
+    --surface-2: #1c1c1c;
+    --surface-3: #262626;
+    --ink: #f5f5f5;
+    --ink-2: #a3a3a3;
+    --muted: #737373;
+    --line: #232323;
+    --line-strong: #333333;
+    --accent: #f5f5f5;
+    --accent-ink: #0a0a0a;
+    --good: #f5f5f5;
+    --bad: #f87171;
+    --warn: #fbbf24;
+    --series-income: #4a4a4a;
+    --series-expense: #f5f5f5;
+    --series-1: #f5f5f5;
+    --overlay: rgba(0, 0, 0, 0.6);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-pop: 0 16px 48px -8px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+  --color-warn: var(--warn);
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --shadow-card: var(--shadow);
+  --shadow-pop: var(--shadow-pop);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
+}
+
+::selection {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Campos de texto: estilo "relleno", con foco en tinta */
+@utility input {
+  @apply h-11 w-full rounded-xl border border-transparent bg-surface-2 px-3.5 text-[15px] text-ink outline-none transition-[background,border-color,box-shadow] duration-150 placeholder:text-muted hover:bg-surface-3/70 focus:border-ink focus:bg-surface focus:ring-4 focus:ring-ink/5 disabled:opacity-50;
+}
+@utility textarea {
+  @apply input h-auto min-h-20 py-2.5 leading-relaxed;
+}
+@utility label {
+  @apply mb-1.5 block text-[13px] font-medium text-ink-2;
+}
+@utility hint {
+  @apply mt-1.5 text-xs leading-relaxed text-muted;
+}
+@utility btn {
+  @apply inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-medium whitespace-nowrap transition-[background,opacity,transform] duration-150 select-none active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn bg-accent text-accent-ink hover:opacity-85;
+}
+@utility btn-ghost {
+  @apply btn border border-line bg-surface text-ink hover:bg-surface-2;
+}
+@utility btn-subtle {
+  @apply btn bg-surface-2 text-ink hover:bg-surface-3;
+}
+@utility btn-danger {
+  @apply btn bg-bad/10 text-bad hover:bg-bad/15;
+}
+@utility btn-icon {
+  @apply inline-flex size-9 items-center justify-center rounded-full text-ink-2 transition hover:bg-surface-2 hover:text-ink active:scale-95;
+}
+@utility card {
+  @apply rounded-2xl border border-line bg-surface shadow-card;
+}
+@utility chip {
+  @apply inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 text-[13px] font-medium whitespace-nowrap text-ink transition hover:bg-surface-2;
+}
+
+/* Animaciones de sheet y popovers */
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+.animate-sheet-in {
+  animation: sheet-in 380ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.animate-fade-in {
+  animation: fade-in 250ms ease-out;
+}
+.animate-pop-in {
+  animation: pop-in 140ms ease-out;
+  transform-origin: top;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-sheet-in,
+  .animate-fade-in,
+  .animate-pop-in {
+    animation: none;
+  }
+}
+
+/* Selector de fecha nativo más limpio */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  cursor: pointer;
+}
+@media (prefers-color-scheme: dark) {
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+  }
+}
