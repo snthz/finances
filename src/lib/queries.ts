@@ -5,7 +5,8 @@ import { db } from "@/db";
 import { accounts, categories, currencies, transactions, type TxType } from "@/db/schema";
 import { getT } from "@/i18n/server";
 import { uid } from "./context";
-import { appSettings } from "./settings";
+import { cardCurrencyList, bucketize } from "./card-currencies";
+import { appSettings, currencyRate } from "./settings";
 
 const tz = () => appSettings().timezone;
 const t = transactions;
@@ -187,9 +188,11 @@ export async function topMerchants(ym: string, scope: Scope, limit = 8) {
   return rows.map((r) => ({ name: r.name ?? noDescription, total: num(r.total), count: num(r.count) }));
 }
 
+type CardRow = { currency: string; balance: number; month: number };
+
 /**
- * Saldo de cada cuenta en su moneda. Las tarjetas de crédito llevan aparte el saldo de cada otra moneda
- * (ej. compras en dólares en una tarjeta en lempiras): `others`, para no sumar dólares como lempiras.
+ * Saldo de cada cuenta en su moneda. Las tarjetas de crédito llevan un saldo por moneda (ej. lempiras y
+ * dólares): `balance` es el de su moneda principal y `others` el de las demás, para no sumar dólares como lempiras.
  */
 export async function accountBalances() {
   const rows = await db.execute<{
@@ -202,13 +205,15 @@ export async function accountBalances() {
     institution: string | null;
     archived: boolean;
     is_savings: boolean;
+    extra_currencies: string[];
+    extra_initial_balances: Record<string, string>;
+    initial_balance: string;
     balance: string;
     month_expense: string;
-    rate: string | null;
-    others: { currency: string; balance: string | number }[];
+    card_rows: { currency: string; balance: string | number; month: string | number }[] | null;
   }>(sql`
     select a.id, a.name, a.type, a.currency, a.color, a.identifiers, a.institution, a.archived, a.is_savings,
-      (select rate from currencies c where c.code = a.currency and c.user_id = a.user_id) as rate,
+      a.extra_currencies, a.extra_initial_balances, a.initial_balance,
       a.initial_balance
         + coalesce(sum(t.amount) filter (where t.type = 'income' and t.account_id = a.id), 0)
         - coalesce(sum(t.amount) filter (where t.type = 'expense' and t.account_id = a.id), 0)
@@ -219,28 +224,48 @@ export async function accountBalances() {
         where t.type = 'expense' and t.account_id = a.id
           and to_char(t.date at time zone ${tz()}, 'YYYY-MM') = to_char(now() at time zone ${tz()}, 'YYYY-MM')
       ), 0) as month_expense,
-      (select coalesce(json_agg(json_build_object('currency', o.currency, 'balance', o.balance) order by o.currency), '[]'::json) from (
-        select t2.currency, sum(case when t2.to_account_id = a.id or (t2.type = 'income' and t2.account_id = a.id) then t2.amount else -t2.amount end) as balance
+      -- Tarjetas de crédito: movimientos sumados por moneda (se reparten en sus saldos en JS)
+      (select json_agg(json_build_object('currency', o.currency, 'balance', o.balance, 'month', o.month)) from (
+        select t2.currency,
+          sum(case when t2.to_account_id = a.id or (t2.type = 'income' and t2.account_id = a.id) then t2.amount else -t2.amount end) as balance,
+          coalesce(sum(t2.amount) filter (
+            where t2.type = 'expense'
+              and to_char(t2.date at time zone ${tz()}, 'YYYY-MM') = to_char(now() at time zone ${tz()}, 'YYYY-MM')
+          ), 0) as month
         from transactions t2
-        where a.type = 'credit_card' and t2.user_id = a.user_id and t2.currency <> a.currency and (t2.account_id = a.id or t2.to_account_id = a.id)
+        where a.type = 'credit_card' and t2.user_id = a.user_id and (t2.account_id = a.id or t2.to_account_id = a.id)
         group by t2.currency
-      ) o where o.balance <> 0) as others
+      ) o) as card_rows
     from accounts a
-    left join transactions t on t.user_id = a.user_id and (t.account_id = a.id or t.to_account_id = a.id)
-      and (a.type <> 'credit_card' or t.currency = a.currency)
+    left join transactions t on t.user_id = a.user_id and (t.account_id = a.id or t.to_account_id = a.id) and a.type <> 'credit_card'
     where a.user_id = ${uid()}
     group by a.id
     order by a.archived, a.name
   `);
-  const rates = new Map(appSettings().currencies.map((c) => [c.code, c.rate]));
   return rows.map((r) => {
-    const rate = r.rate === null ? null : num(r.rate);
-    const balance = num(r.balance);
-    const others = (r.others ?? []).map((o) => ({ currency: o.currency, balance: num(o.balance), rate: rates.get(o.currency) ?? null }));
+    const rate = currencyRate(r.currency);
+    let balance = num(r.balance);
+    let monthExpense = num(r.month_expense);
+    let others: { currency: string; balance: number; month: number; rate: number | null }[] = [];
+    if (r.type === "credit_card") {
+      const list = cardCurrencyList(r.currency, r.extra_currencies ?? []);
+      const cardRows: CardRow[] = (r.card_rows ?? []).map((c) => ({ currency: c.currency, balance: num(c.balance), month: num(c.month) }));
+      const buckets = bucketize(list, currencyRate, ["balance", "month"] as const, cardRows);
+      // Saldo inicial de cada moneda (la principal en initial_balance, las demás en extra_initial_balances)
+      const initial = (c: string) => (c === r.currency ? num(r.initial_balance) : num(r.extra_initial_balances?.[c]));
+      const primary = buckets.get(r.currency)!;
+      balance = Math.round((initial(r.currency) + primary.balance) * 100) / 100;
+      monthExpense = primary.month;
+      others = [...buckets]
+        .filter(([c]) => c !== r.currency)
+        .map(([c, v]) => ({ currency: c, balance: Math.round((initial(c) + v.balance) * 100) / 100, month: v.month, rate: currencyRate(c) }))
+        // Las monedas de la tarjeta siempre se muestran; las sueltas sólo si tienen saldo
+        .filter((o) => list.includes(o.currency) || o.balance !== 0);
+    }
     // Todo el saldo en la moneda base (null si falta alguna tasa)
     const parts = [{ balance, rate }, ...others];
     const baseValue = parts.some((p) => p.rate === null) ? null : parts.reduce((acc, p) => acc + p.balance * (p.rate ?? 0), 0);
-    return { ...r, isSavings: r.is_savings, balance, monthExpense: num(r.month_expense), rate, others, baseValue };
+    return { ...r, isSavings: r.is_savings, balance, monthExpense, rate, others, baseValue };
   });
 }
 

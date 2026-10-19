@@ -85,6 +85,10 @@ export const accounts = pgTable("accounts", {
   // Tarjetas de crédito: día de corte del estado de cuenta y día límite de pago (null = no configurado)
   statementDay: integer("statement_day"),
   dueDay: integer("due_day"),
+  // Tarjetas de crédito con saldo en varias monedas (ej. HNL + USD): monedas además de `currency`
+  // y el saldo inicial de cada una ({"USD": "-120.50"}). Los cargos en otra moneda van al saldo de la primera extra.
+  extraCurrencies: text("extra_currencies").array().notNull().default(sql`'{}'::text[]`),
+  extraInitialBalances: jsonb("extra_initial_balances").$type<Record<string, string>>().notNull().default({}),
   archived: boolean("archived").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

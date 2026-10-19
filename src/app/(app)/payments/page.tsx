@@ -13,6 +13,7 @@ import { DateBlock, PaymentDueRow } from "@/components/payment-row";
 import { Card, Empty, IconBubble, PageHeader } from "@/components/ui";
 import { fmt, getT, plural } from "@/i18n/server";
 import { initScope, requireAuth } from "@/lib/auth";
+import { cardCurrencyList } from "@/lib/card-currencies";
 import { creditCardSummaries } from "@/lib/cards";
 import { formatDate, formatYmd, money } from "@/lib/format";
 import { amountText, listPayments, paymentDetail, paymentTotals, today as todayYmd, type PaymentView } from "@/lib/payments";
@@ -355,7 +356,10 @@ export default async function PaymentsPage({ searchParams }: { searchParams: SP 
               if (c.debt > 0 && c.debt !== c.payoff) out.push({ kind: "total", currency: c.currency, amount: c.debt.toFixed(2), display: money(c.debt, c.currency) });
               return out;
             })}
-            currencies={currencies.map((c) => ({ code: c.code, symbol: c.symbol, name: c.name }))}
+            // Sólo las monedas del saldo de la tarjeta (ej. lempiras y dólares)
+            currencies={currencies
+              .filter((c) => cardCurrencyList(payingCard.account.currency, payingCard.account.extraCurrencies).includes(c.code))
+              .map((c) => ({ code: c.code, symbol: c.symbol, name: c.name }))}
             fromOptions={accountOptions.filter((o) => o.value !== String(payingCard.account.id))}
             today={today}
             yesterday={addDays(today, -1)}

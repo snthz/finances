@@ -41,13 +41,12 @@ export function CreditCardPanel({ s }: { s: CardSummary }) {
         </Link>
       </div>
 
-      {/* Deuda por moneda */}
-      <div className={`mt-4 grid gap-4 ${s.currencies.length > 1 ? "grid-cols-2" : ""}`}>
-        {s.currencies.map((c, i) => (
+      {/* Deuda por moneda: cada saldo de la tarjeta (ej. lempiras y dólares) por separado */}
+      <div className="mt-4 text-xs font-medium text-muted">{t.totalOwed}</div>
+      <div className={`mt-0.5 grid gap-4 ${s.currencies.length > 1 ? "grid-cols-2" : ""}`}>
+        {s.currencies.map((c) => (
           <div key={c.currency} className="min-w-0">
-            {i === 0 && <div className="text-xs font-medium text-muted">{t.totalOwed}</div>}
-            {i > 0 && <div className="text-xs font-medium text-muted">{c.currency}</div>}
-            <div className="tabular mt-0.5 text-2xl font-semibold tracking-tight break-words">{money(c.total, c.currency)}</div>
+            <div className="tabular text-2xl font-semibold tracking-tight break-words">{money(c.total, c.currency)}</div>
             <div className="tabular mt-1 space-y-0.5 text-xs text-muted">
               <div>
                 {c.debt < 0 ? t.inFavor : t.purchases} <span className="text-ink-2">{money(Math.abs(c.debt), c.currency)}</span>

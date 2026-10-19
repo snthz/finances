@@ -267,3 +267,9 @@ export function imapConfigured() {
 export function currencyInfo(code: string): CurrencyInfo | undefined {
   return appSettings().currencies.find((c) => c.code === code);
 }
+
+/** Valor de 1 unidad de la moneda en la moneda base (la base vale 1; null si no hay tasa). */
+export function currencyRate(code: string): number | null {
+  if (code === appSettings().baseCurrency) return 1;
+  return currencyInfo(code)?.rate ?? null;
+}

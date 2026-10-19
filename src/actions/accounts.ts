@@ -24,19 +24,33 @@ const accountSchema = z.object({
   isSavings: z.preprocess((v) => v === "on", z.boolean()),
   statementDay: z.preprocess((v) => (v ? Number(v) : null), z.number().int().min(1).max(31).nullable()),
   dueDay: z.preprocess((v) => (v ? Number(v) : null), z.number().int().min(1).max(31).nullable()),
+  extraCurrencies: z.string().optional(),
 });
+
+const balanceValue = z.preprocess((v) => Number(String(v || "0").replace(/,/g, "")), z.number().finite());
 
 export async function saveAccount(_prev: FormState, formData: FormData): Promise<FormState> {
   await requireAuth();
   const t = getT();
   const parsed = accountSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? t.common.errors.invalidData };
-  const { id, identifiers, ...d } = parsed.data;
-  if (!appSettings().currencies.some((c) => c.code === d.currency)) return { error: fmt(t.accounts.errors.addCurrencyFirst, { currency: d.currency }) };
+  const { id, identifiers, extraCurrencies, ...d } = parsed.data;
+  const configured = appSettings().currencies.map((c) => c.code);
+  if (!configured.includes(d.currency)) return { error: fmt(t.accounts.errors.addCurrencyFirst, { currency: d.currency }) };
   const ids = Array.from(
     new Set((identifiers ?? "").split(/[,\s]+/).map((s) => s.replace(/\D/g, "")).filter(Boolean)),
   );
   const isCredit = d.type === "credit_card";
+  // Tarjetas de crédito: otras monedas del saldo (configuradas, sin la principal) y el saldo inicial de cada una
+  const extras = isCredit
+    ? Array.from(new Set((extraCurrencies ?? "").split(",").map((c) => c.trim().toUpperCase()))).filter((c) => configured.includes(c) && c !== d.currency)
+    : [];
+  const extraInitialBalances: Record<string, string> = {};
+  for (const c of extras) {
+    const v = balanceValue.safeParse(formData.get(`initialBalance_${c}`));
+    if (!v.success) return { error: t.accounts.errors.invalidBalance };
+    extraInitialBalances[c] = v.data.toFixed(2);
+  }
   const values = {
     ...d,
     institution: d.institution || null,
@@ -45,6 +59,8 @@ export async function saveAccount(_prev: FormState, formData: FormData): Promise
     // El ciclo de corte sólo aplica a tarjetas de crédito
     statementDay: isCredit ? d.statementDay : null,
     dueDay: isCredit ? d.dueDay : null,
+    extraCurrencies: extras,
+    extraInitialBalances,
   };
 
   let accountId = id;

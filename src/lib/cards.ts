@@ -5,7 +5,8 @@ import { accounts, transactions, type Account } from "@/db/schema";
 import { uid } from "./context";
 import { listPayments, today, type PaymentView } from "./payments";
 import { addDays, diffDays, dueDateAfter, lastStatementDate } from "./payments-shared";
-import { appSettings } from "./settings";
+import { bucketize, cardCurrencyList } from "./card-currencies";
+import { appSettings, currencyRate } from "./settings";
 
 // Estado de las tarjetas de crédito. El pago de una tarjeta es una transferencia hacia ella
 // (desde otra cuenta propia o desde fuera), así no cuenta como gasto: el gasto ya se contó en cada compra.
@@ -73,16 +74,24 @@ async function summarize(card: Account, financings: PaymentView[], now: string):
   ]);
 
   const mine = financings.filter((p) => p.accountId === card.id);
-  const codes = new Set([card.currency, ...rows.map((r) => r.currency), ...mine.map((p) => p.currency)]);
+  // Cada moneda de la tarjeta tiene su saldo; un cargo en otra moneda va al saldo en la moneda adicional
+  const list = cardCurrencyList(card.currency, card.extraCurrencies);
+  const buckets = bucketize(
+    list,
+    currencyRate,
+    ["balance", "atStatement", "spent", "paid"] as const,
+    rows.map((r) => ({ currency: r.currency, balance: Number(r.balance), atStatement: Number(r.atStatement), spent: Number(r.spent), paid: Number(r.paid) })),
+  );
+  for (const p of mine) if (!buckets.has(p.currency)) buckets.set(p.currency, { balance: 0, atStatement: 0, spent: 0, paid: 0 });
+
   const currencies: CardCurrency[] = [];
-  for (const currency of codes) {
-    const r = rows.find((x) => x.currency === currency);
-    // El saldo inicial (negativo = deuda) está en la moneda de la cuenta
-    const initial = currency === card.currency ? Number(card.initialBalance) : 0;
-    const debt = round(-(initial + Number(r?.balance ?? 0)));
+  for (const [currency, r] of buckets) {
+    // Saldo inicial (negativo = deuda) de cada moneda
+    const initial = currency === card.currency ? Number(card.initialBalance) : Number(card.extraInitialBalances?.[currency] ?? 0);
+    const debt = round(-(initial + r.balance));
     const financed = round(mine.filter((p) => p.currency === currency).reduce((acc, p) => acc + (p.remainingAmount ?? 0), 0));
-    const paid = round(Number(r?.paid ?? 0));
-    const statementDebt = statement ? Math.max(0, round(-(initial + Number(r?.atStatement ?? 0)))) : null;
+    const paid = round(r.paid);
+    const statementDebt = statement ? Math.max(0, round(-(initial + r.atStatement))) : null;
     const c: CardCurrency = {
       currency,
       debt,
@@ -90,13 +99,12 @@ async function summarize(card: Account, financings: PaymentView[], now: string):
       total: round(Math.max(0, debt) + financed),
       statementDebt,
       payoff: statementDebt === null ? null : Math.max(0, round(statementDebt - paid)),
-      spent: round(Number(r?.spent ?? 0)),
+      spent: round(r.spent),
       paid,
     };
-    // Monedas sin nada que mostrar (ej. un único cargo en dólares ya pagado) no se listan
-    if (currency === card.currency || c.debt !== 0 || c.financed || c.spent || c.paid || c.payoff) currencies.push(c);
+    // Las monedas de la tarjeta siempre se muestran; las sueltas sólo si tienen algo
+    if (list.includes(currency) || c.debt !== 0 || c.financed || c.spent || c.paid || c.payoff) currencies.push(c);
   }
-  currencies.sort((a, b) => Number(b.currency === card.currency) - Number(a.currency === card.currency) || a.currency.localeCompare(b.currency));
 
   return {
     account: card,
