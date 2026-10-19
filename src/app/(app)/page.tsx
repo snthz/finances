@@ -200,7 +200,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
           {byCategory.length === 0 ? (
             <Empty>{t.noSpending}</Empty>
           ) : (
-            <div className="space-y-1">
+            <div className="-mr-2 max-h-72 space-y-1 overflow-y-auto overscroll-contain pr-2">
               {byCategory.slice(0, 8).map((c) => (
                 <HBar
                   key={c.id ?? "none"}
@@ -237,7 +237,8 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
           {byAccount.length === 0 ? (
             <Empty>{t.noSpending}</Empty>
           ) : (
-            <div className="space-y-1">
+            // Alto máximo igual al gráfico diario (h-48) para no estirar la fila; el resto con scroll
+            <div className="-mr-2 max-h-48 space-y-1 overflow-y-auto overscroll-contain pr-2">
               {byAccount.map((a) => (
                 <HBar
                   key={`${a.id}-${a.name}`}
@@ -262,7 +263,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
           {merchants.length === 0 ? (
             <Empty>{t.noSpending}</Empty>
           ) : (
-            <div className="space-y-1">
+            <div className="-mr-2 max-h-72 space-y-1 overflow-y-auto overscroll-contain pr-2">
               {merchants.map((m) => (
                 <HBar
                   key={m.name}
@@ -352,7 +353,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
               <Link className="font-medium text-ink underline" href="/accounts">{t.balances.empty}</Link>
             </Empty>
           ) : (
-            <ul className="divide-y divide-line">
+            <ul className="-mr-2 max-h-72 divide-y divide-line overflow-y-auto overscroll-contain pr-2">
               {balances.filter((b) => !b.archived).map((b) => (
                 <li key={b.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                   <span className="min-w-0 truncate">{b.name}</span>
@@ -375,7 +376,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
           {recent.rows.length === 0 ? (
             <Empty>{t.recent.empty}</Empty>
           ) : (
-            <ul className="divide-y divide-line">
+            <ul className="-mr-2 max-h-72 divide-y divide-line overflow-y-auto overscroll-contain pr-2">
               {recent.rows.slice(0, 7).map(({ tx, categoryIcon }) => (
                 <li key={tx.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                   <span className="flex min-w-0 items-center gap-3">

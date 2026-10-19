@@ -1,21 +1,21 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { ChevronRight, CircleAlert, Inbox as InboxIcon, Mail, Plus, Sparkles, Wand2 } from "lucide-react";
+import { Check, ChevronRight, CircleAlert, CopyCheck, Inbox as InboxIcon, Mail, Plus, Sparkles, Wand2 } from "lucide-react";
 import Link from "next/link";
 import { deleteRule, runReprocess } from "@/actions/email";
 import { ActionForm, SubmitButton } from "@/components/action-form";
-import { EmailMessageActions } from "@/components/email-message-actions";
+import { DuplicateActions, EmailMessageActions } from "@/components/email-message-actions";
 import { EmailSyncControls } from "@/components/email-sync";
 import { Sheet } from "@/components/form/sheet";
 import { RuleEditor, type RuleInitial } from "@/components/rule-editor";
 import { Badge, Empty, Notice, PageHeader } from "@/components/ui";
 import { db } from "@/db";
-import { emailAccounts, emailMessages, emailRules, transactions } from "@/db/schema";
+import { accounts, emailAccounts, emailMessages, emailRules, transactions } from "@/db/schema";
 import { initScope, requireAuth } from "@/lib/auth";
 import { uid } from "@/lib/context";
 import { aiConfigured } from "@/lib/ai";
 import { extract } from "@/lib/email/parser";
 import { getWatcherStatus } from "@/lib/email/sync";
-import { formatDateTime, money, toLocalYmd } from "@/lib/format";
+import { formatDateTime, formatYmd, localToUtc, money, toLocalYmd } from "@/lib/format";
 import { fmt, getT } from "@/i18n/server";
 import { allAccounts, allCategories } from "@/lib/queries";
 import { appSettings } from "@/lib/settings";
@@ -64,10 +64,11 @@ export default async function EmailPage({ searchParams }: { searchParams: SP }) 
       ignored: sql<number>`count(*) filter (where status = 'ignored')::int`,
       error: sql<number>`count(*) filter (where status = 'error')::int`,
       duplicate: sql<number>`count(*) filter (where status = 'duplicate')::int`,
+      duplicatePending: sql<number>`count(*) filter (where status = 'duplicate' and not duplicate_confirmed)::int`,
     })
     .from(emailMessages)
     .where(eq(emailMessages.userId, uid()));
-  const pending = counts.unmatched + counts.error;
+  const pending = counts.unmatched + counts.error + counts.duplicatePending;
 
   return (
     <>
@@ -171,6 +172,17 @@ async function Inbox({ sp, counts }: { sp: Awaited<SP>; counts: Record<keyof typ
     viewing && viewingRule && !viewingRule.ignore
       ? extract(viewingRule, { from: viewing.m.fromAddress ?? "", subject: viewing.m.subject ?? "", body: viewing.m.body ?? "" }, appSettings().currencies)
       : null;
+  // Duplicado: el movimiento con el que chocó, para compararlo lado a lado
+  const original =
+    viewing?.m.status === "duplicate" && viewing.m.duplicateOfId
+      ? (
+          await db
+            .select({ tx: transactions, accountName: accounts.name })
+            .from(transactions)
+            .leftJoin(accounts, and(eq(accounts.id, transactions.accountId), eq(accounts.userId, transactions.userId)))
+            .where(and(eq(transactions.id, viewing.m.duplicateOfId), eq(transactions.userId, uid())))
+        )[0]
+      : undefined;
   const listHref = `/email${status ? `?status=${status}` : ""}`;
 
   return (
@@ -209,13 +221,18 @@ async function Inbox({ sp, counts }: { sp: Awaited<SP>; counts: Record<keyof typ
                   <span className="flex items-center gap-2">
                     <span className="truncate text-[15px] font-medium">{m.subject || t.email.inbox.noSubject}</span>
                     {m.status !== "parsed" && <Badge tone={STATUS[m.status].tone}>{t.email.status[m.status]}</Badge>}
+                    {m.status === "duplicate" && m.duplicateConfirmed && (
+                      <Badge tone="neutral">
+                        <Check className="size-3" /> {t.email.duplicate.confirmedBadge}
+                      </Badge>
+                    )}
                   </span>
                   <span className="block truncate text-xs text-muted">
                     {formatDateTime(m.receivedAt)} · {m.fromAddress?.replace(/<.*>/, "").trim() || m.fromAddress}
                     {accountLabel && ` · ${accountLabel}`}
                     {ruleName && ` · ${ruleName}`}
                   </span>
-                  {m.error && <span className="block truncate text-xs text-bad">{m.error}</span>}
+                  {m.error && <span className={`block truncate text-xs ${m.status === "duplicate" ? "text-muted" : "text-bad"}`}>{m.error}</span>}
                 </span>
                 {txId && (
                   <span className="tabular shrink-0 text-right text-[15px] font-semibold">
@@ -238,7 +255,8 @@ async function Inbox({ sp, counts }: { sp: Awaited<SP>; counts: Record<keyof typ
               {viewing.accountLabel && <Badge tone="outline">{viewing.accountLabel}</Badge>}
               {viewing.ruleName && <span className="text-muted">{fmt(t.email.inbox.rule, { name: viewing.ruleName })}</span>}
             </div>
-            {viewing.m.error && (
+            {viewing.m.status === "duplicate" && <DuplicateComparison message={viewing.m} detected={detected} original={original} />}
+            {viewing.m.error && viewing.m.status !== "duplicate" && (
               <div className="flex gap-3 rounded-2xl border border-bad/25 bg-bad/5 p-4">
                 <CircleAlert className="mt-0.5 size-4 shrink-0 text-bad" />
                 <div className="min-w-0">
@@ -255,7 +273,7 @@ async function Inbox({ sp, counts }: { sp: Awaited<SP>; counts: Record<keyof typ
                 </span>
               </Link>
             )}
-            {detected && !viewing.txId && (
+            {detected && !viewing.txId && viewing.m.status !== "duplicate" && (
               <section>
                 <h3 className="mb-2 px-1 text-xs font-medium tracking-wide text-muted uppercase">{t.email.inbox.detected}</h3>
                 <dl className="card grid grid-cols-2 gap-px overflow-hidden bg-line shadow-none sm:grid-cols-4">
@@ -283,13 +301,96 @@ async function Inbox({ sp, counts }: { sp: Awaited<SP>; counts: Record<keyof typ
                 <pre className="mt-2 max-h-[40dvh] overflow-auto rounded-2xl bg-surface-2 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">{viewing.m.body}</pre>
               </details>
             </section>
-            {!viewing.txId && (
-              <EmailMessageActions id={viewing.m.id} canRetry={viewing.m.status === "error" || viewing.m.status === "unmatched"} aiEnabled={aiConfigured()} />
+            {viewing.m.status === "duplicate" && !viewing.txId ? (
+              <DuplicateActions id={viewing.m.id} canConfirm={!!original && !viewing.m.duplicateConfirmed} />
+            ) : (
+              !viewing.txId && <EmailMessageActions id={viewing.m.id} canRetry={viewing.m.status === "error" || viewing.m.status === "unmatched"} aiEnabled={aiConfigured()} />
             )}
           </div>
         </Sheet>
       )}
     </>
+  );
+}
+
+type Detected = ReturnType<typeof extract>;
+type Original = { tx: typeof transactions.$inferSelect; accountName: string | null };
+
+const sameText = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+
+/** Correo marcado como duplicado frente al movimiento que ya existía, campo por campo. */
+function DuplicateComparison({ message, detected, original }: { message: typeof emailMessages.$inferSelect; detected: Detected | null; original?: Original }) {
+  const t = getT();
+  const d = t.email.duplicate;
+  const emailYmd = detected?.date?.ymd ?? toLocalYmd(message.receivedAt);
+  // Mismo formato en ambos lados; sin hora en el correo, la de recepción si es del mismo día
+  const found = detected?.date;
+  const emailDate = !found
+    ? formatDateTime(message.receivedAt)
+    : found.time
+      ? formatDateTime(localToUtc(found.ymd, found.time))
+      : found.ymd === toLocalYmd(message.receivedAt)
+        ? formatDateTime(message.receivedAt)
+        : formatYmd(found.ymd);
+  const tx = original?.tx;
+  const rows = tx
+    ? [
+        {
+          label: d.fields.amount,
+          email: detected?.amount == null ? null : money(detected.amount, detected.currency ?? tx.currency),
+          existing: money(tx.amount, tx.currency),
+          same: detected?.amount != null && detected.amount.toFixed(2) === Number(tx.amount).toFixed(2) && (!detected.currency || detected.currency === tx.currency),
+        },
+        { label: d.fields.merchant, email: detected?.merchant, existing: tx.merchant, same: sameText(detected?.merchant, tx.merchant) },
+        {
+          label: d.fields.card,
+          email: detected?.identifier && `•••• ${detected.identifier}`,
+          existing: tx.detectedIdentifier ? `•••• ${tx.detectedIdentifier}` : original.accountName,
+          same: sameText(detected?.identifier, tx.detectedIdentifier),
+        },
+        { label: d.fields.date, email: emailDate, existing: formatDateTime(tx.date), same: emailYmd === toLocalYmd(tx.date) },
+        { label: d.fields.subject, email: message.subject, existing: tx.description, same: sameText(message.subject, tx.description) },
+      ]
+    : [];
+
+  return (
+    <section className="space-y-3">
+      <div className="flex gap-3 rounded-2xl border border-line bg-surface-2 p-4">
+        <CopyCheck className="mt-0.5 size-4 shrink-0" />
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{d.title}</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-ink-2">
+            {!tx ? d.gone : message.duplicateConfirmed ? d.confirmedHint : d.hint}
+          </p>
+          {tx && (
+            <p className="mt-1 text-xs text-muted">{tx.dedupeKey && detected?.dedupeKey ? fmt(d.byKey, { key: detected.dedupeKey }) : d.byMatch}</p>
+          )}
+        </div>
+      </div>
+      {tx && (
+        <div className="card overflow-hidden shadow-none">
+          <div className="grid grid-cols-[minmax(0,5rem)_1fr_1fr] gap-3 border-b border-line bg-surface-2/60 px-4 py-2 text-xs font-medium text-muted sm:grid-cols-[7rem_1fr_1fr]">
+            <span />
+            <span>{d.thisEmail}</span>
+            <Link href={`/transactions?month=all&edit=${tx.id}`} className="flex items-center gap-0.5 hover:text-ink" title={d.open}>
+              {fmt(d.existing, { id: tx.id })} <ChevronRight className="size-3.5" />
+            </Link>
+          </div>
+          <dl className="divide-y divide-line">
+            {rows.map((r) => (
+              <div key={r.label} className="grid grid-cols-[minmax(0,5rem)_1fr_1fr] items-start gap-3 px-4 py-2.5 text-sm sm:grid-cols-[7rem_1fr_1fr]">
+                <dt className="flex items-center gap-1 text-xs text-muted">
+                  {r.same ? <Check className="size-3.5 shrink-0" aria-label={d.same} /> : <span className="size-1.5 shrink-0 rounded-full bg-warn" aria-label={d.differs} />}
+                  <span className="truncate">{r.label}</span>
+                </dt>
+                <dd className={`tabular min-w-0 break-words ${r.email ? (r.same ? "" : "font-medium text-warn") : "text-muted"}`}>{r.email || t.email.inbox.missing}</dd>
+                <dd className={`tabular min-w-0 break-words ${r.existing ? (r.same ? "" : "font-medium text-warn") : "text-muted"}`}>{r.existing || t.email.inbox.missing}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+    </section>
   );
 }
 

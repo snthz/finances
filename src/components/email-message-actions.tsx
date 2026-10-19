@@ -1,10 +1,10 @@
 "use client";
 
-import { Check, LoaderCircle, RotateCw, Sparkles, Wand2 } from "lucide-react";
+import { Check, CopyCheck, LoaderCircle, Plus, RotateCw, Sparkles, Wand2 } from "lucide-react";
 import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { aiRuleFromMessage, retryMessage } from "@/actions/email";
+import { aiRuleFromMessage, resolveDuplicate, retryMessage } from "@/actions/email";
 import { useT } from "@/i18n/client";
 import { ActionForm, PendingContext, SubmitButton, submitWithoutReset, useToastState } from "./action-form";
 import { SheetFooter } from "./form/sheet";
@@ -40,6 +40,26 @@ export function EmailMessageActions({ id, canRetry, aiEnabled }: { id: number; c
         </form>
       )}
       {aiPending && <AiRuleProgress />}
+    </SheetFooter>
+  );
+}
+
+/** Decisión sobre un correo marcado como duplicado: confirmarlo o crear el movimiento igual. */
+export function DuplicateActions({ id, canConfirm }: { id: number; canConfirm: boolean }) {
+  const t = useT().email.duplicate;
+  return (
+    <SheetFooter>
+      <ActionForm action={resolveDuplicate} className="flex flex-1 gap-2">
+        <input type="hidden" name="id" value={id} />
+        <SubmitButton name="decision" value="create" className={`${canConfirm ? "btn-ghost" : "btn-primary"} h-11 flex-1`} pendingText="…">
+          <Plus className="size-4" /> {t.create}
+        </SubmitButton>
+        {canConfirm && (
+          <SubmitButton name="decision" value="confirm" className="btn-primary h-11 flex-1" pendingText="…">
+            <CopyCheck className="size-4" /> {t.confirm}
+          </SubmitButton>
+        )}
+      </ActionForm>
     </SheetFooter>
   );
 }

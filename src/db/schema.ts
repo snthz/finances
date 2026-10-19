@@ -181,6 +181,9 @@ export const emailMessages = pgTable(
     status: emailStatus("status").notNull(),
     ruleId: integer("rule_id").references(() => emailRules.id, { onDelete: "set null" }),
     error: text("error"),
+    // Movimiento con el que chocó al marcarse como duplicado, y si el usuario ya confirmó que lo es
+    duplicateOfId: integer("duplicate_of_id").references((): AnyPgColumn => transactions.id, { onDelete: "set null" }),
+    duplicateConfirmed: boolean("duplicate_confirmed").notNull().default(false),
     // Último intento de crear una regla con IA para este correo
     aiAttemptAt: timestamp("ai_attempt_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

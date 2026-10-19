@@ -122,7 +122,7 @@ function resolveDate(found: LocalDate | null, receivedAt: Date) {
 type Status = "parsed" | "unmatched" | "ignored" | "error" | "duplicate";
 
 /** Aplica las reglas a un correo ya guardado y crea la transacción si corresponde. */
-export async function processMessage(messageId: number, opts: { allowAi?: boolean } = {}): Promise<Status> {
+export async function processMessage(messageId: number, opts: { allowAi?: boolean; allowDuplicate?: boolean } = {}): Promise<Status> {
   const allowAi = opts.allowAi ?? true;
   const userId = uid();
   const msg = await db.query.emailMessages.findFirst({ where: and(eq(emailMessages.id, messageId), eq(emailMessages.userId, userId)) });
@@ -130,7 +130,10 @@ export async function processMessage(messageId: number, opts: { allowAi?: boolea
 
   const existing = await db.query.transactions.findFirst({ where: and(eq(transactions.emailMessageId, msg.id), eq(transactions.userId, userId)) });
   if (existing) {
-    await db.update(emailMessages).set({ status: "parsed", error: null }).where(and(eq(emailMessages.id, msg.id), eq(emailMessages.userId, userId)));
+    await db
+      .update(emailMessages)
+      .set({ status: "parsed", error: null, duplicateOfId: null, duplicateConfirmed: false })
+      .where(and(eq(emailMessages.id, msg.id), eq(emailMessages.userId, userId)));
     return "parsed";
   }
 
@@ -155,7 +158,7 @@ export async function processMessage(messageId: number, opts: { allowAi?: boolea
       console.error("[ai-rules]", err);
       return null;
     });
-    if (created?.ruleId) return processMessage(msg.id, { allowAi: false });
+    if (created?.ruleId) return processMessage(msg.id, { ...opts, allowAi: false });
   }
 
   if (!rule) {
@@ -194,24 +197,27 @@ export async function processMessage(messageId: number, opts: { allowAi?: boolea
 
   // Duplicados: por la clave del documento (ej. quincena) o, si no hay, mismo movimiento en pocos minutos
   const dedupeKey = ex.dedupeKey ? `r${rule.id}:${ex.dedupeKey}` : null;
-  const dup = dedupeKey
-    ? await db.query.transactions.findFirst({ where: and(eq(transactions.userId, userId), eq(transactions.dedupeKey, dedupeKey)) })
-    : await db.query.transactions.findFirst({
-        where: and(
-          eq(transactions.userId, userId),
-          eq(transactions.source, "email"),
-          eq(transactions.type, type),
-          eq(transactions.amount, amount),
-          eq(transactions.currency, currency),
-          ex.merchant ? eq(transactions.merchant, ex.merchant) : isNull(transactions.merchant),
-          ex.identifier ? eq(transactions.detectedIdentifier, ex.identifier) : isNull(transactions.detectedIdentifier),
-          sql`abs(extract(epoch from (${transactions.date} - ${date.toISOString()}::timestamptz))) < 600`,
-        ),
-      });
+  // El usuario ya revisó la comparación y dijo que no es duplicado: se crea igual
+  const dup = opts.allowDuplicate
+    ? undefined
+    : dedupeKey
+      ? await db.query.transactions.findFirst({ where: and(eq(transactions.userId, userId), eq(transactions.dedupeKey, dedupeKey)) })
+      : await db.query.transactions.findFirst({
+          where: and(
+            eq(transactions.userId, userId),
+            eq(transactions.source, "email"),
+            eq(transactions.type, type),
+            eq(transactions.amount, amount),
+            eq(transactions.currency, currency),
+            ex.merchant ? eq(transactions.merchant, ex.merchant) : isNull(transactions.merchant),
+            ex.identifier ? eq(transactions.detectedIdentifier, ex.identifier) : isNull(transactions.detectedIdentifier),
+            sql`abs(extract(epoch from (${transactions.date} - ${date.toISOString()}::timestamptz))) < 600`,
+          ),
+        });
   if (dup) {
     await db
       .update(emailMessages)
-      .set({ status: "duplicate", ruleId: rule.id, error: fmt(getT().email.syncStatus.duplicateOf, { id: dup.id }) })
+      .set({ status: "duplicate", ruleId: rule.id, error: fmt(getT().email.syncStatus.duplicateOf, { id: dup.id }), duplicateOfId: dup.id })
       .where(and(eq(emailMessages.id, msg.id), eq(emailMessages.userId, userId)));
     return "duplicate";
   }
@@ -239,7 +245,10 @@ export async function processMessage(messageId: number, opts: { allowAi?: boolea
   } catch (err) {
     console.error("[payments] no se pudo vincular el movimiento", err);
   }
-  await db.update(emailMessages).set({ status: "parsed", ruleId: rule.id, error: null }).where(and(eq(emailMessages.id, msg.id), eq(emailMessages.userId, userId)));
+  await db
+    .update(emailMessages)
+    .set({ status: "parsed", ruleId: rule.id, error: null, duplicateOfId: null, duplicateConfirmed: false })
+    .where(and(eq(emailMessages.id, msg.id), eq(emailMessages.userId, userId)));
   return "parsed";
 }
 

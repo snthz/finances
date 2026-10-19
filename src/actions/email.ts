@@ -111,6 +111,27 @@ export async function retryMessage(_prev: FormState, formData: FormData): Promis
   return { ok: true, message: fmt(t.email.results.retryStill, { status: t.email.status[status] }) + reason };
 }
 
+/** Revisión de un correo marcado como duplicado: confirmarlo o crear el movimiento de todos modos. */
+export async function resolveDuplicate(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireAuth();
+  const t = getT();
+  const id = Number(formData.get("id"));
+  const decision = formData.get("decision");
+  const where = and(eq(emailMessages.id, id), eq(emailMessages.userId, uid()), eq(emailMessages.status, "duplicate"));
+  const msg = Number.isInteger(id) ? await db.query.emailMessages.findFirst({ columns: { id: true }, where }) : undefined;
+  if (!msg || (decision !== "confirm" && decision !== "create")) return { error: t.common.errors.invalidData };
+
+  if (decision === "confirm") {
+    await db.update(emailMessages).set({ duplicateConfirmed: true }).where(where);
+    revalidatePath("/", "layout");
+    return { ok: true, message: t.email.duplicate.confirmed };
+  }
+  const status = await processMessage(msg.id, { allowDuplicate: true });
+  revalidatePath("/", "layout");
+  if (status === "parsed") return { ok: true, message: t.email.duplicate.created };
+  return { error: fmt(t.email.results.retryStill, { status: t.email.status[status] }) };
+}
+
 export async function runReprocess(_prev: FormState, _formData: FormData): Promise<FormState> {
   await requireAuth();
   const c = await reprocessPending();
