@@ -26,6 +26,7 @@ const accountSchema = z.object({
   statementDay: z.preprocess((v) => (v ? Number(v) : null), z.number().int().min(1).max(31).nullable()),
   dueDay: z.preprocess((v) => (v ? Number(v) : null), z.number().int().min(1).max(31).nullable()),
   extraCurrencies: z.string().optional(),
+  linkedAccountId: z.preprocess((v) => (v ? Number(v) : null), z.number().int().positive().nullable()),
 });
 
 const balanceValue = z.preprocess((v) => Number(String(v || "0").replace(/,/g, "")), z.number().finite());
@@ -35,13 +36,27 @@ export async function saveAccount(_prev: FormState, formData: FormData): Promise
   const t = getT();
   const parsed = accountSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? t.common.errors.invalidData };
-  const { id, identifiers, extraCurrencies, ...d } = parsed.data;
+  const { id, identifiers, extraCurrencies, linkedAccountId, ...d } = parsed.data;
   const configured = appSettings().currencies.map((c) => c.code);
   if (!configured.includes(d.currency)) return { error: fmt(t.accounts.errors.addCurrencyFirst, { currency: d.currency }) };
   const ids = Array.from(
     new Set((identifiers ?? "").split(/[,\s]+/).map((s) => s.replace(/\D/g, "")).filter(Boolean)),
   );
   const isCredit = d.type === "credit_card";
+  // Tarjeta de débito: la cuenta de la que descuenta (propia, distinta y que no sea otra tarjeta)
+  const linked =
+    d.type === "debit_card" && linkedAccountId && linkedAccountId !== id
+      ? await db.query.accounts.findFirst({ where: and(eq(accounts.id, linkedAccountId), eq(accounts.userId, uid())) })
+      : null;
+  if (linkedAccountId && d.type === "debit_card" && (!linked || linked.type === "credit_card" || linked.type === "debit_card")) {
+    return { error: t.common.errors.invalidData };
+  }
+  if (linked) {
+    // Usa la moneda y el saldo de su cuenta; no tiene saldo propio ni cuenta como ahorro aparte
+    d.currency = linked.currency;
+    d.initialBalance = 0;
+    d.isSavings = false;
+  }
   // Tarjetas de crédito: otras monedas del saldo (configuradas, sin la principal) y el saldo inicial de cada una
   const extras = isCredit
     ? Array.from(new Set((extraCurrencies ?? "").split(",").map((c) => c.trim().toUpperCase()))).filter((c) => configured.includes(c) && c !== d.currency)
@@ -62,6 +77,7 @@ export async function saveAccount(_prev: FormState, formData: FormData): Promise
     dueDay: isCredit ? d.dueDay : null,
     extraCurrencies: extras,
     extraInitialBalances,
+    linkedAccountId: linked?.id ?? null,
   };
 
   let accountId = id;

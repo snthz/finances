@@ -92,6 +92,13 @@
       "when": 1792442639527,
       "tag": "0012_card_currencies",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792443728729,
+      "tag": "0013_debit_card_link",
+      "breakpoints": true
     }
   ]
 }

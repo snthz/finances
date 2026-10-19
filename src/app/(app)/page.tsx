@@ -348,13 +348,13 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
         )}
 
         <Card title={t.balances.title} subtitle={t.balances.subtitle} actions={<Link href="/accounts" className="text-xs font-medium text-ink-2 hover:text-ink">{t.balances.viewAccounts}</Link>}>
-          {balances.filter((b) => !b.archived).length === 0 ? (
+          {balances.filter((b) => !b.archived && !b.linkedTo).length === 0 ? (
             <Empty>
               <Link className="font-medium text-ink underline" href="/accounts">{t.balances.empty}</Link>
             </Empty>
           ) : (
             <ul className="-mr-2 max-h-72 divide-y divide-line overflow-y-auto overscroll-contain pr-2">
-              {balances.filter((b) => !b.archived).map((b) => (
+              {balances.filter((b) => !b.archived && !b.linkedTo).map((b) => (
                 <li key={b.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                   <span className="min-w-0 truncate">{b.name}</span>
                   <span className={`tabular shrink-0 text-right ${b.balance < 0 ? "text-bad" : ""}`}>

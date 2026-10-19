@@ -207,13 +207,14 @@ export async function accountBalances() {
     is_savings: boolean;
     extra_currencies: string[];
     extra_initial_balances: Record<string, string>;
+    linked_account_id: number | null;
     initial_balance: string;
     balance: string;
     month_expense: string;
     card_rows: { currency: string; balance: string | number; month: string | number }[] | null;
   }>(sql`
     select a.id, a.name, a.type, a.currency, a.color, a.identifiers, a.institution, a.archived, a.is_savings,
-      a.extra_currencies, a.extra_initial_balances, a.initial_balance,
+      a.extra_currencies, a.extra_initial_balances, a.initial_balance, a.linked_account_id,
       a.initial_balance
         + coalesce(sum(t.amount) filter (where t.type = 'income' and t.account_id = a.id), 0)
         - coalesce(sum(t.amount) filter (where t.type = 'expense' and t.account_id = a.id), 0)
@@ -242,7 +243,7 @@ export async function accountBalances() {
     group by a.id
     order by a.archived, a.name
   `);
-  return rows.map((r) => {
+  const list = rows.map((r) => {
     const rate = currencyRate(r.currency);
     let balance = num(r.balance);
     let monthExpense = num(r.month_expense);
@@ -262,11 +263,43 @@ export async function accountBalances() {
         // Las monedas de la tarjeta siempre se muestran; las sueltas sólo si tienen saldo
         .filter((o) => list.includes(o.currency) || o.balance !== 0);
     }
-    // Todo el saldo en la moneda base (null si falta alguna tasa)
-    const parts = [{ balance, rate }, ...others];
-    const baseValue = parts.some((p) => p.rate === null) ? null : parts.reduce((acc, p) => acc + p.balance * (p.rate ?? 0), 0);
-    return { ...r, isSavings: r.is_savings, balance, monthExpense, rate, others, baseValue };
+    return {
+      ...r,
+      isSavings: r.is_savings,
+      balance,
+      monthExpense,
+      rate,
+      others,
+      baseValue: null as number | null,
+      /** Tarjeta de débito vinculada: la cuenta de la que descuenta (su saldo es el de esa cuenta) */
+      linkedTo: null as { id: number; name: string } | null,
+      /** Cuenta con tarjetas de débito vinculadas */
+      linkedCards: [] as { id: number; name: string; identifiers: string[] }[],
+    };
   });
+
+  // Tarjetas de débito vinculadas: sus movimientos se suman a la cuenta de la que descuentan
+  const byId = new Map(list.map((a) => [a.id, a]));
+  for (const card of list) {
+    const acc = card.type === "debit_card" && card.linked_account_id ? byId.get(card.linked_account_id) : undefined;
+    if (!acc || acc.type === "credit_card" || acc.type === "debit_card") continue;
+    // Monto en la moneda de la cuenta (sin tasa se toma tal cual)
+    const from = currencyRate(card.currency);
+    const to = currencyRate(acc.currency);
+    const factor = card.currency === acc.currency || !from || !to ? 1 : from / to;
+    acc.balance = Math.round((acc.balance + (card.balance - num(card.initial_balance)) * factor) * 100) / 100;
+    acc.monthExpense = Math.round((acc.monthExpense + card.monthExpense * factor) * 100) / 100;
+    acc.linkedCards.push({ id: card.id, name: card.name, identifiers: card.identifiers });
+    card.linkedTo = { id: acc.id, name: acc.name };
+  }
+  // La tarjeta muestra el saldo de su cuenta (al guardarla toma la moneda de la cuenta)
+  for (const card of list) if (card.linkedTo) card.balance = byId.get(card.linkedTo.id)!.balance;
+  for (const a of list) {
+    // Todo el saldo en la moneda base (null si falta alguna tasa); las tarjetas vinculadas no suman aparte
+    const parts = a.linkedTo ? [] : [{ balance: a.balance, rate: a.rate }, ...a.others];
+    a.baseValue = parts.some((p) => p.rate === null) ? null : parts.reduce((acc, p) => acc + p.balance * (p.rate ?? 0), 0);
+  }
+  return list;
 }
 
 export type TxFilters = {
@@ -285,7 +318,11 @@ export async function listTransactions(f: TxFilters) {
   const conds: SQL[] = [mine()];
   if (f.month) conds.push(inMonth(f.month));
   if (f.accountId === "none") conds.push(sql`${t.accountId} is null`);
-  else if (f.accountId) conds.push(eq(t.accountId, f.accountId));
+  // Una cuenta incluye lo pagado con sus tarjetas de débito vinculadas
+  else if (f.accountId)
+    conds.push(
+      sql`(${t.accountId} = ${f.accountId} or ${t.accountId} in (select id from accounts where user_id = ${uid()} and linked_account_id = ${f.accountId}))`,
+    );
   if (f.categoryId === "none") conds.push(sql`${t.categoryId} is null and ${t.type} <> 'transfer'`);
   else if (f.categoryId) conds.push(eq(t.categoryId, f.categoryId));
   if (f.type) conds.push(eq(t.type, f.type));

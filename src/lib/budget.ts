@@ -46,7 +46,11 @@ async function savingsByMonth(fromYm: string, toYm: string) {
   const tz = appSettings().timezone;
   const userId = uid();
   const rows = await db.execute<{ ym: string; net: string }>(sql`
-    with s as (select id from accounts where is_savings and user_id = ${userId}),
+    -- Cuentas de ahorro y las tarjetas de débito vinculadas a ellas (gastar con la tarjeta es sacar del ahorro)
+    with s as (
+      select id from accounts where user_id = ${userId}
+        and (is_savings or (type = 'debit_card' and linked_account_id in (select id from accounts where is_savings and user_id = ${userId})))
+    ),
     t as (
       select tr.*, coalesce((select rate from currencies c where c.code = tr.currency and c.user_id = tr.user_id), 0) as rate,
         to_char(tr.date at time zone ${tz}, 'YYYY-MM') as ym
@@ -128,7 +132,8 @@ export function streak(months: MonthResult[], key: "budgetMet" | "savingsMet"): 
 
 export async function savingsOverview() {
   const balances = await accountBalances();
-  const savings = balances.filter((b) => b.isSavings && !b.archived);
+  // Las tarjetas de débito vinculadas ya cuentan dentro de su cuenta
+  const savings = balances.filter((b) => b.isSavings && !b.archived && !b.linkedTo);
   const total = savings.reduce((acc, b) => acc + (b.rate === null ? 0 : b.balance * b.rate), 0);
   const [goalName, goalAmount] = await Promise.all([getSetting(GOAL_KEYS.name), getSetting(GOAL_KEYS.amount)]);
   return {

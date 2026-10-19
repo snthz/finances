@@ -22,6 +22,8 @@ export function AccountTypeFields({
   extraInitialBalances,
   statementDay,
   dueDay,
+  linkOptions,
+  linkedAccountId,
   institutionField,
   children,
 }: {
@@ -35,6 +37,9 @@ export function AccountTypeFields({
   extraInitialBalances: Record<string, string>;
   statementDay: number | null;
   dueDay: number | null;
+  /** Cuentas a las que se puede vincular una tarjeta de débito (con su moneda en `hint`) */
+  linkOptions: SelectOption[];
+  linkedAccountId: number | null;
   /** Campo que acompaña al tipo en la misma fila (institución) */
   institutionField: React.ReactNode;
   /** Campos entre la moneda y el saldo inicial (últimos dígitos) */
@@ -46,6 +51,9 @@ export function AccountTypeFields({
   const [currency, setCurrency] = useState(defaultCurrency);
   const [extras, setExtras] = useState(extraCurrencies.filter((c) => c !== defaultCurrency));
   const isCredit = type === "credit_card";
+  const [linked, setLinked] = useState(linkedAccountId ? String(linkedAccountId) : "");
+  // Tarjeta de débito vinculada: usa la moneda y el saldo de su cuenta
+  const isLinked = type === "debit_card" && Boolean(linked);
   const extraList = isCredit ? extras.filter((c) => c !== currency) : [];
   const dayOptions = [{ value: "", label: f.dayNotSet }, ...DAYS.map((d) => ({ value: d, label: d }))];
 
@@ -58,9 +66,20 @@ export function AccountTypeFields({
         {institutionField}
       </div>
 
-      <Field label={f.currency} hint={currencyHint}>
-        <Select name="currency" value={currency} onChange={setCurrency} options={currencyOptions} />
-      </Field>
+      {type === "debit_card" && (
+        <Field label={f.linkedAccount} hint={isLinked ? f.linkedAccountHint : f.linkedAccountNoneHint}>
+          <Select name="linkedAccountId" value={linked} onChange={setLinked} options={[{ value: "", label: f.linkedAccountNone }, ...linkOptions]} />
+        </Field>
+      )}
+
+      {isLinked ? (
+        // La moneda la pone el servidor (la de la cuenta); se envía la actual para validar
+        <input type="hidden" name="currency" value={currency} />
+      ) : (
+        <Field label={f.currency} hint={currencyHint}>
+          <Select name="currency" value={currency} onChange={setCurrency} options={currencyOptions} />
+        </Field>
+      )}
 
       {isCredit && (
         <Field label={f.extraCurrencies} hint={f.extraCurrenciesHint}>
@@ -76,8 +95,8 @@ export function AccountTypeFields({
 
       {children}
 
-      {/* Saldo inicial: uno por cada moneda del saldo de la tarjeta */}
-      <div className={`grid gap-4 ${extraList.length ? "sm:grid-cols-2" : ""}`}>
+      {/* Saldo inicial: uno por cada moneda del saldo de la tarjeta (las de débito vinculadas no tienen saldo propio) */}
+      <div className={`grid gap-4 ${extraList.length ? "sm:grid-cols-2" : ""} ${isLinked ? "hidden" : ""}`}>
         <Field label={extraList.length ? fmt(f.initialBalanceIn, { currency }) : f.initialBalance} htmlFor="initialBalance">
           <input id="initialBalance" name="initialBalance" inputMode="decimal" defaultValue={initialBalance} className="input tabular" />
         </Field>
@@ -87,7 +106,7 @@ export function AccountTypeFields({
           </Field>
         ))}
       </div>
-      <p className="hint -mt-3">{isCredit ? f.initialBalanceHint : f.initialBalanceHintOther}</p>
+      {!isLinked && <p className="hint -mt-3">{isCredit ? f.initialBalanceHint : f.initialBalanceHintOther}</p>}
 
       {isCredit && (
         <div>

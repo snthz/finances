@@ -62,6 +62,13 @@ function AccountTile({ a }: { a: Balance }) {
       <div className={`font-mono text-sm tracking-widest ${isCard ? "text-bg/70" : "text-muted"}`}>
         {a.identifiers.length ? a.identifiers.map((i) => `•••• ${i}`).join("  ") : "—"}
       </div>
+      {/* Tarjeta de débito vinculada: de qué cuenta sale. Cuenta: qué tarjetas descuentan de ella */}
+      {a.linkedTo && <div className="mt-1 truncate text-xs text-bg/60">{fmt(ta.drawsFrom, { name: a.linkedTo.name })}</div>}
+      {a.linkedCards.length > 0 && (
+        <div className={`mt-1 truncate text-xs ${isCard ? "text-bg/60" : "text-muted"}`}>
+          {fmt(ta.cardsLinked, { cards: a.linkedCards.map((c) => (c.identifiers[0] ? `•••• ${c.identifiers[0]}` : c.name)).join(", ") })}
+        </div>
+      )}
       <div className="mt-auto pt-4">
         {isCredit ? (
           <>
@@ -111,18 +118,23 @@ export default async function AccountsPage({ searchParams }: { searchParams: SP 
   const active = balances.filter((b) => !b.archived);
   const archived = balances.filter((b) => b.archived);
   // Patrimonio neto convertido a la moneda base (los saldos sin tasa no se suman)
-  const parts = active.flatMap((b) => [{ currency: b.currency, balance: b.balance, rate: b.rate }, ...b.others]);
+  // Las tarjetas de débito vinculadas muestran el saldo de su cuenta: no se suman aparte
+  const parts = active.filter((b) => !b.linkedTo).flatMap((b) => [{ currency: b.currency, balance: b.balance, rate: b.rate }, ...b.others]);
   const netWorth = parts.reduce((acc, p) => acc + (p.rate === null ? 0 : p.balance * p.rate), 0);
   const withoutRate = [...new Set(parts.filter((p) => p.rate === null).map((p) => p.currency))];
 
   // Secciones: tarjetas de crédito, cuentas y débito, efectivo y otros
   const credit = active.filter((a) => a.type === "credit_card");
-  const banks = active.filter((a) => a.type === "bank" || a.type === "debit_card");
+  // Cada cuenta seguida de sus tarjetas de débito vinculadas
+  const bankLike = active.filter((a) => a.type === "bank" || a.type === "debit_card");
+  const banks = bankLike
+    .filter((a) => !a.linkedTo || !bankLike.some((b) => b.id === a.linkedTo!.id))
+    .flatMap((a) => [a, ...bankLike.filter((c) => c.linkedTo?.id === a.id)]);
   const rest = active.filter((a) => !credit.includes(a) && !banks.includes(a));
   // Deuda total de las tarjetas por moneda ("Debes L 8,000.00 + $ 45.00")
   const owed = new Map<string, number>();
   for (const a of credit) for (const p of [{ currency: a.currency, balance: a.balance }, ...a.others]) if (p.balance < 0) owed.set(p.currency, (owed.get(p.currency) ?? 0) - p.balance);
-  const inBase = (list: typeof active) => list.reduce((acc, a) => acc + (a.rate === null ? 0 : a.balance * a.rate), 0);
+  const inBase = (list: typeof active) => list.reduce((acc, a) => acc + (a.rate === null || a.linkedTo ? 0 : a.balance * a.rate), 0);
   const groups = [
     {
       key: "credit" as const,
@@ -246,6 +258,11 @@ export default async function AccountsPage({ searchParams }: { searchParams: SP 
               extraInitialBalances={editing?.extraInitialBalances ?? {}}
               statementDay={editing?.statementDay ?? null}
               dueDay={editing?.dueDay ?? null}
+              // Una tarjeta de débito descuenta de una cuenta bancaria, efectivo o billetera (no de otra tarjeta)
+              linkOptions={balances
+                .filter((b) => b.id !== editing?.id && b.type !== "credit_card" && b.type !== "debit_card" && (!b.archived || b.id === editing?.linkedAccountId))
+                .map((b) => ({ value: String(b.id), label: b.name, hint: [b.currency, b.isSavings ? ta.savingsBadge : null].filter(Boolean).join(" · "), icon: b.isSavings ? <PiggyBank className="size-4" /> : TYPE_ICONS[b.type] }))}
+              linkedAccountId={editing?.linkedAccountId ?? null}
               institutionField={
                 <Field label={ta.form.institution} htmlFor="institution">
                   <input id="institution" name="institution" defaultValue={editing?.institution ?? ""} placeholder={ta.form.optional} className="input" />

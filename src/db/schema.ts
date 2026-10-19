@@ -89,6 +89,8 @@ export const accounts = pgTable("accounts", {
   // y el saldo inicial de cada una ({"USD": "-120.50"}). Los cargos en otra moneda van al saldo de la primera extra.
   extraCurrencies: text("extra_currencies").array().notNull().default(sql`'{}'::text[]`),
   extraInitialBalances: jsonb("extra_initial_balances").$type<Record<string, string>>().notNull().default({}),
+  // Tarjeta de débito: cuenta de la que descuenta (sus movimientos cuentan en el saldo de esa cuenta)
+  linkedAccountId: integer("linked_account_id").references((): AnyPgColumn => accounts.id, { onDelete: "set null" }),
   archived: boolean("archived").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
