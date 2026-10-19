@@ -1,7 +1,7 @@
 import path from "node:path";
 import { asc, eq, isNotNull } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { db } from "@/db";
+import { createDatabaseIfMissing, db } from "@/db";
 import { CATEGORY_ICONS, DEFAULT_CATEGORY_ICON, EMOJI_TO_ICON } from "@/components/category-icon";
 import { categories, emailAccounts, users } from "@/db/schema";
 import { DEFAULT_AI_MODELS } from "@/lib/ai-models";
@@ -108,11 +108,24 @@ async function init(attempt = 1): Promise<void> {
     console.log("[startup] base de datos lista");
   } catch (err) {
     const code = (err as { cause?: { code?: string } })?.cause?.code ?? (err as { code?: string })?.code;
-    console.error(
+    // La base de datos de la URL no existe: se crea y se reintenta enseguida
+    if (code === "3D000") {
+      const r = await createDatabaseIfMissing();
+      if (r.ok) {
+        console.log(`[startup] base de datos "${r.name}" creada`);
+        return init(attempt + 1);
+      }
+      console.error(
+        `[startup] la base de datos "${r.name}" no existe y no se pudo crear (${r.message}). ` +
+          "Créala o usa en DATABASE_URL la URL de conexión interna de tu servicio Postgres (Dokploy → Postgres → Internal Connection URL).",
+      );
+    } else {
+      console.error(
       `[startup] no se pudo preparar la base de datos (intento ${attempt})${code ? `: ${code}` : ""}.` +
         (code === "ECONNREFUSED" ? " ¿Está corriendo Postgres? En local: bun run db:up" : ""),
     );
-    if (code !== "ECONNREFUSED" && code !== "ENOTFOUND" && code !== "57P03") console.error(err);
+      if (code !== "ECONNREFUSED" && code !== "ENOTFOUND" && code !== "57P03") console.error(err);
+    }
     // Reintenta sin tumbar el servidor
     await new Promise((r) => setTimeout(r, Math.min(30_000, 2_000 * attempt)));
     return init(attempt + 1);
