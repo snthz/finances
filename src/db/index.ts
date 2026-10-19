@@ -9,10 +9,33 @@ type DB = ReturnType<typeof drizzle<typeof schema>>;
 // la instancia vieja no la leería.
 const g = globalThis as unknown as { __financeSql?: postgres.Sql; __financeDbs?: WeakMap<object, DB> };
 
+/**
+ * Algunos paneles (o URLs copiadas de Prisma) agregan `?schema=public`. postgres.js enviaría `schema`
+ * como parámetro de conexión y Postgres lo rechaza ("unrecognized configuration parameter"):
+ * se quita de la URL y se usa como search_path.
+ */
+export function parseDatabaseUrl(raw: string) {
+  try {
+    const url = new URL(raw);
+    const schemaParam = url.searchParams.get("schema");
+    if (!schemaParam) return { url: raw, searchPath: undefined };
+    url.searchParams.delete("schema");
+    return { url: url.toString(), searchPath: schemaParam };
+  } catch {
+    return { url: raw, searchPath: undefined };
+  }
+}
+
 function connection() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL no está configurada");
-  return (g.__financeSql ??= postgres(url, { max: 10, idle_timeout: 30, onnotice: () => {} }));
+  const raw = process.env.DATABASE_URL;
+  if (!raw) throw new Error("DATABASE_URL no está configurada");
+  const { url, searchPath } = parseDatabaseUrl(raw);
+  return (g.__financeSql ??= postgres(url, {
+    max: 10,
+    idle_timeout: 30,
+    onnotice: () => {},
+    ...(searchPath ? { connection: { search_path: searchPath } } : {}),
+  }));
 }
 
 function instance() {
