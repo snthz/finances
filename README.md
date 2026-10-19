@@ -80,3 +80,7 @@ Las reglas se evalúan por prioridad (de menor a mayor) y la primera que coincid
 - **Extracción:** regex cuyo primer grupo `( )` es el valor. Si se deja vacío, se usan patrones genéricos en español: `Monto: L. 1,234.56`, `US$ 12.99`, `1,500.00 HNL`, `terminada en 1234`, `****1234`, `Comercio: …`, `Concepto: …`. La moneda se detecta con los alias de Ajustes → Monedas.
 - La **cuenta** se elige por los últimos 4 dígitos, salvo que la regla fije una. La **categoría** se elige por palabras clave, salvo que la regla fije una.
 - La fecha del movimiento es la fecha del correo.
+
+## Licencia
+
+[MIT](LICENSE) © 2026 FallxnStudio

@@ -2,6 +2,7 @@
   "name": "finances",
   "private": true,
   "version": "1.0.0",
+  "license": "MIT",
   "scripts": {
     "dev": "bun run db:up && next dev",
     "db:up": "docker compose -f docker-compose.dev.yml up -d --wait",
