@@ -1,0 +1,42 @@
+{
+  "name": "finances",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "bun run db:up && next dev",
+    "db:up": "docker compose -f docker-compose.dev.yml up -d --wait",
+    "db:down": "docker compose -f docker-compose.dev.yml down",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.135.0",
+    "drizzle-orm": "0.45.4",
+    "geist": "1.8.1",
+    "imapflow": "2.5.7",
+    "jose": "6.2.12",
+    "lucide-react": "1.59.0",
+    "mailparser": "3.9.47",
+    "next": "16.4.2",
+    "postgres": "3.4.9",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "recharts": "3.10.1",
+    "server-only": "^0.0.1",
+    "sonner": "2.0.8",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/mailparser": "^3.9.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "drizzle-kit": "0.31.11",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3"
+  }
+}
