@@ -98,6 +98,23 @@ describe("monedas fuera de las configuradas", () => {
     expect(extract(bac, email, CURRENCIES)).toMatchObject({ amount: 65, currency: "HNL", merchant: "ESPRE A AUTOSER BLVD D" });
   });
 
+  test("BAC sin comercio: el monto va justo después de Comercio/Monto", () => {
+    const email = {
+      from: "BAC Credomatic <notificacion_hn@baccredomatic.com>",
+      subject: "BAC Credomatic Informa",
+      body: "BAC Credomatic Informa:\n\nAMEX 3110\n\nEstimado cliente, notificamos que se ha realizado la siguiente\ntransacción con su tarjeta. A continuación el detalle de la misma.\n\nDetalles del movimiento:\n\nComercio\n\nMonto\n\nL 254\n\nHorario\n\n2026/10/12-12:11:51\n\nTipo de compra\n\nEstado\n\nInternet\n\nAprobada",
+    };
+    expect(ruleMatches(bac, email)).toBe(true);
+    const ex = extract(bac, email, CURRENCIES);
+    expect(ex).toMatchObject({ amount: 254, currency: "HNL", merchant: null, identifier: "3110" });
+    expect(ex.date).toEqual({ ymd: "2026-10-12", time: "12:11" });
+  });
+
+  test("BAC con comercio que empieza con L no confunde la moneda", () => {
+    const email = { from: "baccredomatic", subject: "", body: "transacción con su tarjeta\nComercio\nMonto\nLA RES FOOD COMPANY\nL 121" };
+    expect(extract(bac, email, CURRENCIES)).toMatchObject({ amount: 121, currency: "HNL", merchant: "LA RES FOOD COMPANY" });
+  });
+
   test("las reglas genéricas también leen monedas del catálogo", () => {
     const ex = extract({ fromPattern: "x" }, { from: "x", subject: "Compra", body: "Compra por Q 1,250.50 con tarjeta 4821" }, CURRENCIES);
     expect(ex).toMatchObject({ amount: 1250.5, currency: "GTQ" });

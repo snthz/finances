@@ -3,7 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { categories, emailRules } from "@/db/schema";
 import type { Locale } from "@/i18n/config";
-import { PRESET_RULES, PRESET_RULES_V1, PRESETS_VERSION } from "@/lib/email/presets";
+import { PRESET_HISTORY, PRESET_RULES, PRESETS_VERSION } from "@/lib/email/presets";
 import { getSetting, KEYS, setSetting } from "@/lib/settings";
 
 // Datos iniciales de cada usuario nuevo: categorías, reglas genéricas y reglas de bancos conocidos.
@@ -79,15 +79,17 @@ const PRESET_FIELDS = [
   "defaultCurrency",
 ] as const;
 
-/** v1 → v2 (más monedas): actualiza cada campo sólo si sigue igual a como se instaló, para no pisar ediciones. */
-async function upgradePresetsFromV1(userId: number) {
+/** Versión instalada → actual: actualiza cada campo sólo si sigue igual a como se instaló, para no pisar ediciones. */
+async function upgradePresets(userId: number, installed: number) {
+  const previous = PRESET_HISTORY[installed];
+  if (!previous) return;
   const rows = await db
     .select()
     .from(emailRules)
     .where(and(eq(emailRules.userId, userId), eq(emailRules.source, "preset")));
   for (const row of rows) {
     const next = PRESET_RULES.find((p) => p.name === row.name);
-    const prev = PRESET_RULES_V1.find((p) => p.name === row.name);
+    const prev = previous.find((p) => p.name === row.name);
     if (!next || !prev) continue;
     const set: Partial<Record<(typeof PRESET_FIELDS)[number], string | null>> = {};
     for (const f of PRESET_FIELDS) {
@@ -101,7 +103,7 @@ async function upgradePresetsFromV1(userId: number) {
 export async function installPresets(userId: number) {
   const installed = Number((await getSetting(KEYS.presetsVersion, userId)) ?? 0);
   if (installed >= PRESETS_VERSION) return 0;
-  if (installed === 1) await upgradePresetsFromV1(userId);
+  if (installed > 0) await upgradePresets(userId, installed);
   const [existing, cats] = await Promise.all([
     db.select({ name: emailRules.name }).from(emailRules).where(eq(emailRules.userId, userId)),
     db.select({ id: categories.id, name: categories.name }).from(categories).where(eq(categories.userId, userId)),

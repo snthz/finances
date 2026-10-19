@@ -41,9 +41,9 @@ export const PRESET_RULES: Preset[] = [
     type: "expense",
     fromPattern: "baccredomatic|credomatic",
     bodyPattern: String.raw`transacci[oó]n con su tarjeta`,
-    // "Comercio  Monto" y debajo "ESPRE A AUTOSER BLVD D   L 65"
-    amountRegex: String.raw`\bComercio\s+Monto\s+.+?\s+${CUR}\s?${AMOUNT}`,
-    currencyRegex: String.raw`\bComercio\s+Monto\s+.+?\s+${CUR_CAPTURE}\s?\d`,
+    // "Comercio  Monto" y debajo "ESPRE A AUTOSER BLVD D   L 65" (a veces sin comercio: sólo "L 254")
+    amountRegex: String.raw`\bComercio\s+Monto\s+(?:.+?\s+)?${CUR}\s?${AMOUNT}`,
+    currencyRegex: String.raw`\bComercio\s+Monto\s+(?:.+?\s+)?${CUR_CAPTURE}\s?\d`,
     merchantRegex: String.raw`\bComercio\s+Monto\s+(.+?)\s+${CUR}\s?\d`,
     identifierRegex: String.raw`(?:AMEX|VISA|MASTER\w*|MC|DEBITO|CREDITO)\s*[*xX•]*\s*(\d{4})\b`,
     dateRegex: String.raw`Horario\s+(\d{4}/\d{2}/\d{2}[-\s]\d{1,2}:\d{2}(?::\d{2})?)`,
@@ -152,5 +152,19 @@ export const PRESET_RULES_V1: Preset[] = [
   },
 ];
 
+/** Versión 2 tal como se instaló: igual a la actual salvo la compra BAC, que exigía comercio antes del monto. */
+export const PRESET_RULES_V2: Preset[] = PRESET_RULES.map((p) =>
+  p.name === "BAC · Compra con tarjeta"
+    ? {
+        ...p,
+        amountRegex: String.raw`\bComercio\s+Monto\s+.+?\s+${CUR}\s?${AMOUNT}`,
+        currencyRegex: String.raw`\bComercio\s+Monto\s+.+?\s+${CUR_CAPTURE}\s?\d`,
+      }
+    : p,
+);
+
+/** Cada versión anterior tal como se instaló, para actualizar sólo los campos que el usuario no editó. */
+export const PRESET_HISTORY: Record<number, Preset[]> = { 1: PRESET_RULES_V1, 2: PRESET_RULES_V2 };
+
 /** Versión del set de presets: al subirla se instalan los que falten (por nombre) y se actualizan los campos no editados. */
-export const PRESETS_VERSION = 2;
+export const PRESETS_VERSION = 3;
