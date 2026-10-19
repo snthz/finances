@@ -187,6 +187,10 @@ export async function topMerchants(ym: string, scope: Scope, limit = 8) {
   return rows.map((r) => ({ name: r.name ?? noDescription, total: num(r.total), count: num(r.count) }));
 }
 
+/**
+ * Saldo de cada cuenta en su moneda. Las tarjetas de crédito llevan aparte el saldo de cada otra moneda
+ * (ej. compras en dólares en una tarjeta en lempiras): `others`, para no sumar dólares como lempiras.
+ */
 export async function accountBalances() {
   const rows = await db.execute<{
     id: number;
@@ -201,6 +205,7 @@ export async function accountBalances() {
     balance: string;
     month_expense: string;
     rate: string | null;
+    others: { currency: string; balance: string | number }[];
   }>(sql`
     select a.id, a.name, a.type, a.currency, a.color, a.identifiers, a.institution, a.archived, a.is_savings,
       (select rate from currencies c where c.code = a.currency and c.user_id = a.user_id) as rate,
@@ -213,20 +218,30 @@ export async function accountBalances() {
       coalesce(sum(t.amount) filter (
         where t.type = 'expense' and t.account_id = a.id
           and to_char(t.date at time zone ${tz()}, 'YYYY-MM') = to_char(now() at time zone ${tz()}, 'YYYY-MM')
-      ), 0) as month_expense
+      ), 0) as month_expense,
+      (select coalesce(json_agg(json_build_object('currency', o.currency, 'balance', o.balance) order by o.currency), '[]'::json) from (
+        select t2.currency, sum(case when t2.to_account_id = a.id or (t2.type = 'income' and t2.account_id = a.id) then t2.amount else -t2.amount end) as balance
+        from transactions t2
+        where a.type = 'credit_card' and t2.user_id = a.user_id and t2.currency <> a.currency and (t2.account_id = a.id or t2.to_account_id = a.id)
+        group by t2.currency
+      ) o where o.balance <> 0) as others
     from accounts a
     left join transactions t on t.user_id = a.user_id and (t.account_id = a.id or t.to_account_id = a.id)
+      and (a.type <> 'credit_card' or t.currency = a.currency)
     where a.user_id = ${uid()}
     group by a.id
     order by a.archived, a.name
   `);
-  return rows.map((r) => ({
-    ...r,
-    isSavings: r.is_savings,
-    balance: num(r.balance),
-    monthExpense: num(r.month_expense),
-    rate: r.rate === null ? null : num(r.rate),
-  }));
+  const rates = new Map(appSettings().currencies.map((c) => [c.code, c.rate]));
+  return rows.map((r) => {
+    const rate = r.rate === null ? null : num(r.rate);
+    const balance = num(r.balance);
+    const others = (r.others ?? []).map((o) => ({ currency: o.currency, balance: num(o.balance), rate: rates.get(o.currency) ?? null }));
+    // Todo el saldo en la moneda base (null si falta alguna tasa)
+    const parts = [{ balance, rate }, ...others];
+    const baseValue = parts.some((p) => p.rate === null) ? null : parts.reduce((acc, p) => acc + p.balance * (p.rate ?? 0), 0);
+    return { ...r, isSavings: r.is_savings, balance, monthExpense: num(r.month_expense), rate, others, baseValue };
+  });
 }
 
 export type TxFilters = {

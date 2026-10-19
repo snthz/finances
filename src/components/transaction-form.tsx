@@ -14,7 +14,7 @@ import { fmt, useT } from "@/i18n/client";
 
 type Opt = { id: number; name: string };
 type Cat = Opt & { kind: "expense" | "income"; icon: string };
-type Acc = Opt & { currency: string; archived: boolean; identifiers: string[] };
+type Acc = Opt & { currency: string; archived: boolean; identifiers: string[]; type?: string };
 
 export type TxInitial = {
   id?: number;
@@ -54,6 +54,9 @@ export function TransactionForm({ initial, accounts, categories, currencies, ret
   const [currency, setCurrency] = useState(initial.currency);
   const [accountId, setAccountId] = useState(initial.accountId ? String(initial.accountId) : "");
   const [amount, setAmount] = useState(initial.amount);
+  const [toAccountId, setToAccountId] = useState(initial.toAccountId ? String(initial.toAccountId) : "");
+  // A una tarjeta de crédito se puede pagar desde fuera (efectivo, otro banco): el origen es opcional
+  const toIsCredit = accounts.find((a) => String(a.id) === toAccountId)?.type === "credit_card";
   const activeAccounts = accounts.filter((a) => !a.archived || a.id === initial.accountId || a.id === initial.toAccountId);
   const accountOptions = activeAccounts.map((a) => ({
     value: String(a.id),
@@ -111,11 +114,17 @@ export function TransactionForm({ initial, accounts, categories, currencies, ret
         {type === "transfer" ? (
           <div className="grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
             <Field label={f.from}>
-              <Select name="accountId" value={accountId} onChange={setAccountId} options={accountOptions} placeholder={f.fromPlaceholder} />
+              <Select
+                name="accountId"
+                value={accountId}
+                onChange={setAccountId}
+                options={toIsCredit ? [{ value: "", label: f.externalSource }, ...accountOptions] : accountOptions}
+                placeholder={f.fromPlaceholder}
+              />
             </Field>
             <ArrowRight className="mx-auto hidden size-4 text-muted sm:mb-3.5 sm:block" />
             <Field label={f.to}>
-              <Select name="toAccountId" defaultValue={initial.toAccountId ? String(initial.toAccountId) : ""} options={accountOptions} placeholder={f.toPlaceholder} />
+              <Select name="toAccountId" value={toAccountId} onChange={setToAccountId} options={accountOptions} placeholder={f.toPlaceholder} />
             </Field>
             <p className="hint sm:col-span-3">{f.transferHint}</p>
           </div>

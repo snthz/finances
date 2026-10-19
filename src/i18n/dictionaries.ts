@@ -5,6 +5,7 @@ import type { Locale } from "./config";
 import accounts from "./messages/accounts";
 import auth from "./messages/auth";
 import budget from "./messages/budget";
+import cards from "./messages/cards";
 import categories from "./messages/categories";
 import common from "./messages/common";
 import dashboard from "./messages/dashboard";
@@ -17,7 +18,7 @@ import settings from "./messages/settings";
 import transactions from "./messages/transactions";
 import ui from "./messages/ui";
 
-const sections = { common, landing, legal, auth, dashboard, transactions, budget, accounts, categories, payments, email, settings, forms, ui };
+const sections = { common, landing, legal, auth, dashboard, transactions, budget, accounts, categories, payments, cards, email, settings, forms, ui };
 
 type Sections = typeof sections;
 export type Dictionary = { [K in keyof Sections]: Sections[K]["en"] };

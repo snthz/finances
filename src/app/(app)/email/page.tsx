@@ -314,6 +314,7 @@ async function Rules({ sp }: { sp: Awaited<SP> }) {
   if (editing) {
     initial = {
       ...editing,
+      type: editing.cardPayment ? "card_payment" : editing.type,
       fromPattern: editing.fromPattern ?? "",
       subjectPattern: editing.subjectPattern ?? "",
       bodyPattern: editing.bodyPattern ?? "",
@@ -381,7 +382,7 @@ async function Rules({ sp }: { sp: Awaited<SP> }) {
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
                     <span className="truncate text-[15px] font-medium">{r.name}</span>
-                    {r.ignore ? <Badge tone="outline">{t.email.rules.ignore}</Badge> : <Badge>{t.common.txTypes[r.type]}</Badge>}
+                    {r.ignore ? <Badge tone="outline">{t.email.rules.ignore}</Badge> : <Badge>{r.cardPayment ? t.email.rules.cardPayment : t.common.txTypes[r.type]}</Badge>}
                     {r.source === "ai" && (
                       <Badge tone="solid">
                         <Sparkles className="size-3" /> {t.email.rules.ai}

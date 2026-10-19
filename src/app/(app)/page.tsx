@@ -356,7 +356,15 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
               {balances.filter((b) => !b.archived).map((b) => (
                 <li key={b.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                   <span className="min-w-0 truncate">{b.name}</span>
-                  <span className={`tabular shrink-0 ${b.balance < 0 ? "text-bad" : ""}`}>{money(b.balance, b.currency)}</span>
+                  <span className={`tabular shrink-0 text-right ${b.balance < 0 ? "text-bad" : ""}`}>
+                    {money(b.balance, b.currency)}
+                    {/* Tarjetas con saldo en otra moneda (ej. compras en dólares) */}
+                    {b.others.map((o) => (
+                      <span key={o.currency} className={`block text-xs ${o.balance < 0 ? "text-bad" : "text-muted"}`}>
+                        {money(o.balance, o.currency)}
+                      </span>
+                    ))}
+                  </span>
                 </li>
               ))}
             </ul>

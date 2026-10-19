@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { Banknote, CreditCard, Landmark, PiggyBank, Plus, Smartphone, Wallet, WalletCards } from "lucide-react";
 import Link from "next/link";
 import { deleteAccount, saveAccount, toggleArchiveAccount } from "@/actions/accounts";
+import { AccountTypeFields } from "@/components/account-type-fields";
 import { ActionForm, FormMessages, SubmitButton } from "@/components/action-form";
 import { ConfirmButton } from "@/components/confirm-button";
 import { Field, Switch, TagInput } from "@/components/form/controls";
@@ -55,9 +56,10 @@ export default async function AccountsPage({ searchParams }: { searchParams: SP 
 
   const active = balances.filter((b) => !b.archived);
   const archived = balances.filter((b) => b.archived);
-  // Patrimonio neto convertido a la moneda base (las cuentas sin tasa no se suman)
-  const netWorth = active.reduce((acc, b) => acc + (b.rate === null ? 0 : b.balance * b.rate), 0);
-  const withoutRate = [...new Set(active.filter((b) => b.rate === null).map((b) => b.currency))];
+  // Patrimonio neto convertido a la moneda base (los saldos sin tasa no se suman)
+  const parts = active.flatMap((b) => [{ currency: b.currency, balance: b.balance, rate: b.rate }, ...b.others]);
+  const netWorth = parts.reduce((acc, p) => acc + (p.rate === null ? 0 : p.balance * p.rate), 0);
+  const withoutRate = [...new Set(parts.filter((p) => p.rate === null).map((p) => p.currency))];
 
   return (
     <>
@@ -121,7 +123,22 @@ export default async function AccountsPage({ searchParams }: { searchParams: SP 
                   {a.identifiers.length ? a.identifiers.map((i) => `•••• ${i}`).join("  ") : "—"}
                 </div>
                 <div className="mt-auto pt-4">
-                  <div className={`tabular text-2xl font-semibold tracking-tight ${a.balance < 0 && !isCard ? "text-bad" : ""}`}>{money(a.balance, a.currency)}</div>
+                  {a.type === "credit_card" ? (
+                    <>
+                      {/* Tarjeta de crédito: lo que se debe (positivo), por moneda */}
+                      <div className="text-xs text-bg/60">{a.balance > 0 ? ta.inFavor : ta.owe}</div>
+                      <div className="tabular text-2xl font-semibold tracking-tight">{money(Math.abs(a.balance), a.currency)}</div>
+                      {a.others.map((o) => (
+                        <div key={o.currency} className="tabular text-sm font-medium text-bg/80">
+                          {o.balance > 0 ? "+" : ""}
+                          {money(Math.abs(o.balance), o.currency)}
+                          {o.balance > 0 && <span className="text-bg/60"> {ta.inFavor.toLowerCase()}</span>}
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <div className={`tabular text-2xl font-semibold tracking-tight ${a.balance < 0 && !isCard ? "text-bad" : ""}`}>{money(a.balance, a.currency)}</div>
+                  )}
                   <div className={`mt-0.5 text-xs ${isCard ? "text-bg/60" : "text-muted"}`}>
                     {fmt(ta.thisMonth, { amount: money(a.monthExpense, a.currency) })}
                     {a.currency !== baseCurrency && a.rate !== null && <> · ≈ {money(a.balance * a.rate)}</>}
@@ -168,18 +185,16 @@ export default async function AccountsPage({ searchParams }: { searchParams: SP 
             <Field label={ta.form.name} htmlFor="name">
               <input id="name" name="name" required defaultValue={editing?.name} placeholder={ta.form.namePlaceholder} className="input" autoFocus={!editing} />
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label={ta.form.type}>
-                <Select
-                  name="type"
-                  defaultValue={editing?.type ?? (sp.savings ? "bank" : "credit_card")}
-                  options={Object.entries(t.common.accountTypes).map(([v, l]) => ({ value: v, label: l, icon: TYPE_ICONS[v] }))}
-                />
-              </Field>
+            <AccountTypeFields
+              defaultType={editing?.type ?? (sp.savings ? "bank" : "credit_card")}
+              typeOptions={Object.entries(t.common.accountTypes).map(([v, l]) => ({ value: v, label: l, icon: TYPE_ICONS[v] }))}
+              statementDay={editing?.statementDay ?? null}
+              dueDay={editing?.dueDay ?? null}
+            >
               <Field label={ta.form.institution} htmlFor="institution">
                 <input id="institution" name="institution" defaultValue={editing?.institution ?? ""} placeholder={ta.form.optional} className="input" />
               </Field>
-            </div>
+            </AccountTypeFields>
             <Field
               label={ta.form.currency}
               hint={

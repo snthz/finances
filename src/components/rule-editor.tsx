@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, ChevronRight, FlaskConical, X } from "lucide-react";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { saveRule, testRule, type TestResult } from "@/actions/email";
 import { SubmitButton, submitWithoutReset, useToastState } from "./action-form";
 import { ConfirmButton } from "./confirm-button";
@@ -22,7 +22,7 @@ export type RuleInitial = {
   fromPattern: string;
   subjectPattern: string;
   bodyPattern: string;
-  type: "expense" | "income" | "transfer";
+  type: "expense" | "income" | "transfer" | "card_payment";
   amountRegex: string;
   merchantRegex: string;
   identifierRegex: string;
@@ -71,6 +71,8 @@ export function RuleEditor({ initial, accounts, categories, currencies, messages
   const e = t.email.editor;
   const [saveState, saveAction, saving] = useActionState(saveRule, null);
   const [testState, testAction, testing] = useActionState(testRule, null);
+  const [type, setType] = useState(initial.type);
+  const cardPayment = type === "card_payment";
   useToastState(saveState);
   const result = testState?.data as TestResult | undefined;
 
@@ -89,11 +91,13 @@ export function RuleEditor({ initial, accounts, categories, currencies, messages
           <Field label={e.creates}>
             <Segmented
               name="type"
-              defaultValue={initial.type}
+              value={type}
+              onChange={(v) => setType(v as RuleInitial["type"])}
               options={[
                 { value: "expense", label: t.common.txTypes.expense },
                 { value: "income", label: t.common.txTypes.income },
                 { value: "transfer", label: e.transferShort },
+                { value: "card_payment", label: e.cardPaymentShort },
               ]}
             />
           </Field>
@@ -101,6 +105,7 @@ export function RuleEditor({ initial, accounts, categories, currencies, messages
             <input id="priority" name="priority" type="number" defaultValue={initial.priority} className="input tabular" />
           </Field>
         </div>
+        {cardPayment && <p className="hint -mt-2">{e.cardPaymentHint}</p>}
         <div className="card divide-y divide-line px-4 shadow-none">
           <div className="py-2">
             <Switch name="enabled" defaultChecked={initial.enabled} label={e.enabled} />
@@ -135,21 +140,25 @@ export function RuleEditor({ initial, accounts, categories, currencies, messages
       </Step>
 
       <Step n={3} title={e.step3} hint={e.step3Hint}>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field label={e.account}>
+        <div className={`grid gap-4 ${cardPayment ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
+          {/* En un pago de tarjeta la tarjeta sale de los últimos 4; aquí se elige la cuenta de origen */}
+          <Field label={cardPayment ? e.paidFrom : e.account}>
             <Select
+              key={cardPayment ? "from" : "account"}
               name="accountId"
               defaultValue={initial.accountId ? String(initial.accountId) : ""}
-              options={[{ value: "", label: e.byLast4 }, ...accounts.map((a) => ({ value: String(a.id), label: a.name }))]}
+              options={[{ value: "", label: cardPayment ? e.paidFromUnknown : e.byLast4 }, ...accounts.map((a) => ({ value: String(a.id), label: a.name }))]}
             />
           </Field>
-          <Field label={e.category}>
-            <Select
-              name="categoryId"
-              defaultValue={initial.categoryId ? String(initial.categoryId) : ""}
-              options={[{ value: "", label: e.byKeywords }, ...categories.map((c) => ({ value: String(c.id), label: c.name, icon: <CategoryIcon name={c.icon} /> }))]}
-            />
-          </Field>
+          {!cardPayment && (
+            <Field label={e.category}>
+              <Select
+                name="categoryId"
+                defaultValue={initial.categoryId ? String(initial.categoryId) : ""}
+                options={[{ value: "", label: e.byKeywords }, ...categories.map((c) => ({ value: String(c.id), label: c.name, icon: <CategoryIcon name={c.icon} /> }))]}
+              />
+            </Field>
+          )}
           <Field label={e.fallbackCurrency}>
             <Select name="defaultCurrency" defaultValue={initial.defaultCurrency} options={[{ value: "", label: e.accountCurrency }, ...currencies.map((c) => ({ value: c, label: c }))]} />
           </Field>
@@ -199,7 +208,7 @@ export function RuleEditor({ initial, accounts, categories, currencies, messages
             <dd>{result.currency ?? "—"}</dd>
             <dt className="text-muted">{e.last4Short}</dt>
             <dd className="font-mono">{result.identifier ?? "—"}</dd>
-            <dt className="text-muted">{e.account}</dt>
+            <dt className="text-muted">{cardPayment ? e.card : e.account}</dt>
             <dd>{result.account ?? <span className="text-warn">{e.noAccountMatches}</span>}</dd>
             <dt className="text-muted">{e.merchant}</dt>
             <dd>{result.merchant ?? "—"}</dd>

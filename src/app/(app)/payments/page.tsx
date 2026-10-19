@@ -2,7 +2,9 @@ import { CalendarClock, ChevronRight, Plus } from "lucide-react";
 import Link from "next/link";
 import { markPaymentPaid } from "@/actions/payments";
 import { ActionForm, SubmitButton } from "@/components/action-form";
+import { CardPaymentForm, type QuickAmount } from "@/components/card-payment-form";
 import { CategoryIcon } from "@/components/category-icon";
+import { CreditCardPanel } from "@/components/credit-card-panel";
 import { DateField, Field, Switch } from "@/components/form/controls";
 import { Select } from "@/components/form/select";
 import { Sheet, SheetFooter } from "@/components/form/sheet";
@@ -11,6 +13,7 @@ import { DateBlock, PaymentDueRow } from "@/components/payment-row";
 import { Card, Empty, IconBubble, PageHeader } from "@/components/ui";
 import { fmt, getT, plural } from "@/i18n/server";
 import { initScope, requireAuth } from "@/lib/auth";
+import { creditCardSummaries } from "@/lib/cards";
 import { formatDate, formatYmd, money } from "@/lib/format";
 import { amountText, listPayments, paymentDetail, paymentTotals, today as todayYmd, type PaymentView } from "@/lib/payments";
 import { addDays, dueLabel, isFrequency, type Kind, PAYMENT_KINDS } from "@/lib/payments-shared";
@@ -23,7 +26,7 @@ export async function generateMetadata() {
   return { title: getT().payments.metaTitle };
 }
 
-type SP = Promise<{ new?: string; edit?: string; pay?: string; back?: string }>;
+type SP = Promise<{ new?: string; edit?: string; pay?: string; payCard?: string; back?: string }>;
 
 function scheduleText(p: PaymentView) {
   const t = getT().payments;
@@ -113,7 +116,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: SP 
   const back = sp.back && /^\/(?![/\\])/.test(sp.back) ? sp.back : "/payments";
   const { baseCurrency, currencies } = appSettings();
   const today = todayYmd();
-  const [list, accountList, categoryList] = await Promise.all([listPayments(), allAccounts(), allCategories()]);
+  const [list, accountList, categoryList, cards] = await Promise.all([listPayments(), allAccounts(), allCategories(), creditCardSummaries()]);
   const totals = paymentTotals(list);
 
   const active = list.filter((p) => p.active);
@@ -179,6 +182,7 @@ export default async function PaymentsPage({ searchParams }: { searchParams: SP 
   const linked = editing ? await linkedTransactions(editing.id) : [];
 
   const paying = sp.pay ? list.find((p) => p.id === Number(sp.pay)) : undefined;
+  const payingCard = sp.payCard ? cards.find((c) => c.account.id === Number(sp.payCard)) : undefined;
   const accountOptions = accountList
     .filter((a) => !a.archived)
     .map((a) => ({ value: String(a.id), label: a.name, hint: [a.currency, a.identifiers.length ? `•••• ${a.identifiers.join(", ")}` : null].filter(Boolean).join(" · ") }));
@@ -194,6 +198,22 @@ export default async function PaymentsPage({ searchParams }: { searchParams: SP 
           </Link>
         }
       />
+
+      {cards.length > 0 && (
+        <section className="mb-8">
+          <div className="mb-3 px-1">
+            <h2 className="text-[15px] font-semibold tracking-tight">
+              {dict.cards.title} <span className="font-normal text-muted">· {cards.length}</span>
+            </h2>
+            <p className="text-xs text-muted">{dict.cards.subtitle}</p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {cards.map((c) => (
+              <CreditCardPanel key={c.account.id} s={c} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {list.length === 0 ? (
         <Empty icon={<CalendarClock className="size-5" />}>
@@ -319,6 +339,27 @@ export default async function PaymentsPage({ searchParams }: { searchParams: SP 
                 </div>
               )
             }
+          />
+        </Sheet>
+      )}
+
+      {payingCard && (
+        <Sheet title={fmt(dict.cards.payTitle, { name: payingCard.account.name })} description={dict.cards.payDescription} closeHref={back}>
+          <CardPaymentForm
+            cardId={payingCard.account.id}
+            defaultCurrency={payingCard.account.currency}
+            quick={payingCard.currencies.flatMap((c) => {
+              const out: QuickAmount[] = [];
+              if (c.payoff) out.push({ kind: "payoff", currency: c.currency, amount: c.payoff.toFixed(2), display: money(c.payoff, c.currency) });
+              // "Todo" = el contado actual (las cuotas financiadas se pagan con cada estado de cuenta)
+              if (c.debt > 0 && c.debt !== c.payoff) out.push({ kind: "total", currency: c.currency, amount: c.debt.toFixed(2), display: money(c.debt, c.currency) });
+              return out;
+            })}
+            currencies={currencies.map((c) => ({ code: c.code, symbol: c.symbol, name: c.name }))}
+            fromOptions={accountOptions.filter((o) => o.value !== String(payingCard.account.id))}
+            today={today}
+            yesterday={addDays(today, -1)}
+            returnTo={back}
           />
         </Sheet>
       )}

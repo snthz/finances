@@ -82,6 +82,9 @@ export const accounts = pgTable("accounts", {
   color: varchar("color", { length: 9 }).notNull().default("#2a78d6"),
   // Cuenta de ahorro: su saldo es la base de las metas de ahorro del presupuesto
   isSavings: boolean("is_savings").notNull().default(false),
+  // Tarjetas de crédito: día de corte del estado de cuenta y día límite de pago (null = no configurado)
+  statementDay: integer("statement_day"),
+  dueDay: integer("due_day"),
   archived: boolean("archived").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -111,6 +114,8 @@ export const emailRules = pgTable("email_rules", {
   priority: integer("priority").notNull().default(100),
   // Si coincide, el correo se marca como ignorado y no crea transacción
   ignore: boolean("ignore").notNull().default(false),
+  // Pago a una tarjeta de crédito: crea una transferencia hacia la tarjeta de los últimos 4 (la cuenta de la regla es el origen)
+  cardPayment: boolean("card_payment").notNull().default(false),
   // Filtros (regex, sin distinguir mayúsculas). Vacío = no filtra.
   fromPattern: text("from_pattern"),
   subjectPattern: text("subject_pattern"),

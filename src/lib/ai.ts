@@ -32,6 +32,7 @@ const RuleProposal = z.object({
   reason: z.string().describe("Explicación breve en español de qué es el correo"),
   name: z.string().describe("Nombre corto de la regla, ej. 'Banco X · Compra con tarjeta'"),
   type: z.enum(["expense", "income", "transfer"]),
+  card_payment: z.boolean().describe("true si el correo confirma un pago o abono hecho a una tarjeta de crédito del usuario (no una compra con la tarjeta)"),
   fromPattern: z.string(),
   subjectPattern: z.string(),
   bodyPattern: z.string(),
@@ -65,6 +66,7 @@ Cómo aplica la app una regla:
   - dedupeRegex sólo para documentos periódicos que a veces llegan repetidos (planillas, estados de un periodo): captura el identificador del periodo. Si no aplica, cadena vacía.
 - El texto viene de convertir HTML a texto: los saltos de línea y espacios varían. Usa \\s+ entre una etiqueta y su valor, y ancla cada regex a una etiqueta del correo ("Monto", "Comercio", "Fecha"…). Evita que una regex pueda coincidir dentro de una URL o del asunto por accidente.
 - type: "expense" (sale dinero: compras, pagos, transferencias enviadas), "income" (entra dinero: depósitos, planilla, transferencias recibidas) o "transfer" (sólo si es claramente entre cuentas del mismo usuario).
+- card_payment: true sólo si el correo confirma un pago/abono a una tarjeta de crédito del usuario (ej. "pago recibido", "abono a su tarjeta", "pago a tarjeta de crédito"). En ese caso usa type "transfer" e identifierRegex debe capturar los últimos 4 dígitos de la TARJETA PAGADA (no de la cuenta de origen). Las compras hechas con la tarjeta son card_payment=false.
 - Si el correo NO es un movimiento de dinero (promoción, código de verificación, aviso de inicio de sesión, estado de cuenta, transacción rechazada o denegada), pon is_money_movement=false; la app creará una regla para ignorar ese tipo de correo usando tus filtros.
 
 En "expected" escribe los valores que tú lees en el correo; la app comprobará que tus regex extraen exactamente eso.
@@ -329,7 +331,7 @@ export function createRuleWithAi(messageId: number, opts: { force?: boolean } = 
 
     const rule = ruleFromProposal(proposal);
     // La categoría sale de la lista del propio usuario (cats ya está filtrada)
-    const category = proposal.categoryName
+    const category = proposal.categoryName && !proposal.card_payment
       ? cats.find((c) => c.name.toLowerCase() === proposal!.categoryName.toLowerCase() && c.kind === (proposal!.type === "income" ? "income" : "expense"))
       : undefined;
     const [saved] = await db
@@ -341,7 +343,8 @@ export function createRuleWithAi(messageId: number, opts: { force?: boolean } = 
         ignore: !proposal.is_money_movement,
         priority: 60,
         source: "ai",
-        type: proposal.type,
+        type: proposal.card_payment ? "transfer" : proposal.type,
+        cardPayment: proposal.card_payment && proposal.is_money_movement,
         fromPattern: rule.fromPattern,
         subjectPattern: rule.subjectPattern,
         bodyPattern: rule.bodyPattern,

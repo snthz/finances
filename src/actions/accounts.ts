@@ -1,11 +1,11 @@
 "use server";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, not, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/db";
-import { accounts, transactions } from "@/db/schema";
+import { accounts, emailMessages, emailRules, transactions } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import { uid } from "@/lib/context";
 import { appSettings } from "@/lib/settings";
@@ -22,6 +22,8 @@ const accountSchema = z.object({
   initialBalance: z.preprocess((v) => Number(String(v || "0").replace(/,/g, "")), z.number({ error: () => getT().accounts.errors.invalidBalance })),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).catch("#0a0a0a"),
   isSavings: z.preprocess((v) => v === "on", z.boolean()),
+  statementDay: z.preprocess((v) => (v ? Number(v) : null), z.number().int().min(1).max(31).nullable()),
+  dueDay: z.preprocess((v) => (v ? Number(v) : null), z.number().int().min(1).max(31).nullable()),
 });
 
 export async function saveAccount(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -34,7 +36,16 @@ export async function saveAccount(_prev: FormState, formData: FormData): Promise
   const ids = Array.from(
     new Set((identifiers ?? "").split(/[,\s]+/).map((s) => s.replace(/\D/g, "")).filter(Boolean)),
   );
-  const values = { ...d, institution: d.institution || null, identifiers: ids, initialBalance: d.initialBalance.toFixed(2) };
+  const isCredit = d.type === "credit_card";
+  const values = {
+    ...d,
+    institution: d.institution || null,
+    identifiers: ids,
+    initialBalance: d.initialBalance.toFixed(2),
+    // El ciclo de corte sólo aplica a tarjetas de crédito
+    statementDay: isCredit ? d.statementDay : null,
+    dueDay: isCredit ? d.dueDay : null,
+  };
 
   let accountId = id;
   if (id) {
@@ -46,14 +57,23 @@ export async function saveAccount(_prev: FormState, formData: FormData): Promise
     if (!updated.length) return { error: t.common.errors.invalidData };
   } else [{ id: accountId }] = await db.insert(accounts).values({ ...values, userId: uid() }).returning({ id: accounts.id });
 
-  // Asocia transacciones importadas sin cuenta que traían estos últimos dígitos
+  // Asocia transacciones importadas sin cuenta que traían estos últimos dígitos.
+  // Los pagos de tarjeta detectados en correos traen los dígitos de la tarjeta: van como destino.
   for (const ident of ids) {
+    const sameDigits = and(eq(transactions.userId, uid()), eq(transactions.detectedIdentifier, ident.slice(-4)));
+    const fromCardPaymentRule = sql`coalesce(${transactions.emailMessageId} in (
+      select m.id from ${emailMessages} m join ${emailRules} r on r.id = m.rule_id
+      where m.user_id = ${uid()} and r.user_id = ${uid()} and r.card_payment), false)`;
+    if (isCredit) {
+      await db
+        .update(transactions)
+        .set({ toAccountId: accountId })
+        .where(and(sameDigits, eq(transactions.type, "transfer"), isNull(transactions.toAccountId), fromCardPaymentRule));
+    }
     await db
       .update(transactions)
       .set({ accountId })
-      .where(
-        and(eq(transactions.userId, uid()), isNull(transactions.accountId), eq(transactions.detectedIdentifier, ident.slice(-4))),
-      );
+      .where(and(sameDigits, isNull(transactions.accountId), not(fromCardPaymentRule)));
   }
   revalidatePath("/", "layout");
   const returnTo = String(formData.get("returnTo") ?? "");

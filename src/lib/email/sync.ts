@@ -174,16 +174,21 @@ export async function processMessage(messageId: number, opts: { allowAi?: boolea
     return "error";
   }
 
-  const account =
-    (rule.accountId ? accountList.find((a) => a.id === rule.accountId) : null) ?? matchAccount(accountList, ex.identifier);
-  const relevantCats = categoryList.filter((c) => (rule.type === "income" ? c.kind === "income" : c.kind === "expense"));
+  // Pago de tarjeta: los últimos 4 son de la tarjeta pagada (destino); la cuenta de la regla, si hay, es el origen
+  const card = rule.cardPayment
+    ? (matchAccount(accountList.filter((a) => a.type === "credit_card"), ex.identifier) ?? matchAccount(accountList, ex.identifier))
+    : null;
+  const ruleAccount = rule.accountId ? accountList.find((a) => a.id === rule.accountId) : null;
+  const account = rule.cardPayment ? ruleAccount : (ruleAccount ?? matchAccount(accountList, ex.identifier));
+  const type = rule.cardPayment ? "transfer" : rule.type;
+  const relevantCats = categoryList.filter((c) => (type === "income" ? c.kind === "income" : c.kind === "expense"));
   const categoryId =
-    rule.type === "transfer"
+    type === "transfer"
       ? null
       : ((rule.categoryId && categoryList.some((c) => c.id === rule.categoryId) ? rule.categoryId : null) ??
         matchCategory(relevantCats, ex.merchant, msg.subject)?.id ??
         null);
-  const currency = ex.currency ?? account?.currency ?? appSettings().baseCurrency;
+  const currency = ex.currency ?? card?.currency ?? account?.currency ?? appSettings().baseCurrency;
   const date = resolveDate(ex.date, msg.receivedAt);
   const amount = ex.amount.toFixed(2);
 
@@ -195,7 +200,7 @@ export async function processMessage(messageId: number, opts: { allowAi?: boolea
         where: and(
           eq(transactions.userId, userId),
           eq(transactions.source, "email"),
-          eq(transactions.type, rule.type),
+          eq(transactions.type, type),
           eq(transactions.amount, amount),
           eq(transactions.currency, currency),
           ex.merchant ? eq(transactions.merchant, ex.merchant) : isNull(transactions.merchant),
@@ -216,11 +221,12 @@ export async function processMessage(messageId: number, opts: { allowAi?: boolea
     userId,
     date,
     amount,
-    type: rule.type,
+    type,
     currency,
     description: msg.subject,
     merchant: ex.merchant,
     accountId: account?.id ?? null,
+    toAccountId: card && card.id !== account?.id ? card.id : null,
     categoryId,
     source: "email",
     emailMessageId: msg.id,

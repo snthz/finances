@@ -28,7 +28,8 @@ const ruleSchema = z.object({
   fromPattern: optionalText,
   subjectPattern: optionalText,
   bodyPattern: optionalText,
-  type: z.enum(["expense", "income", "transfer"]),
+  // "card_payment" se guarda como transferencia con cardPayment = true
+  type: z.enum(["expense", "income", "transfer", "card_payment"]),
   amountRegex: optionalText,
   merchantRegex: optionalText,
   identifierRegex: optionalText,
@@ -49,7 +50,7 @@ export async function saveRule(_prev: FormState, formData: FormData): Promise<Fo
   const t = getT();
   const parsed = ruleSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? t.common.errors.invalidData };
-  const { id, ...d } = parsed.data;
+  const { id, type, ...d } = parsed.data;
   if (!d.fromPattern && !d.subjectPattern && !d.bodyPattern) {
     return { error: t.email.errors.filterRequired };
   }
@@ -70,7 +71,8 @@ export async function saveRule(_prev: FormState, formData: FormData): Promise<Fo
   // Cuenta y categoría del formulario: sólo si son del usuario
   const [accountId, categoryId] = await Promise.all([ownedAccountId(d.accountId), ownedCategoryId(d.categoryId)]);
   if ((d.accountId && !accountId) || (d.categoryId && !categoryId)) return { error: t.common.errors.invalidData };
-  const values = { ...d, accountId, categoryId };
+  const cardPayment = type === "card_payment";
+  const values = { ...d, type: cardPayment ? ("transfer" as const) : type, cardPayment, accountId, categoryId: cardPayment ? null : categoryId };
   if (id) {
     const [updated] = await db
       .update(emailRules)
@@ -178,7 +180,11 @@ export async function testRule(_prev: FormState, formData: FormData): Promise<Fo
 
   const ex = extract(rule, email, appSettings().currencies);
   const accList = await db.select().from(accounts).where(eq(accounts.userId, uid()));
-  const account = (rule.accountId ? accList.find((a) => a.id === rule.accountId) : null) ?? matchAccount(accList, ex.identifier);
+  // En un pago de tarjeta, la cuenta que se muestra es la tarjeta pagada (por sus últimos 4)
+  const account =
+    rule.type === "card_payment"
+      ? (matchAccount(accList.filter((a) => a.type === "credit_card"), ex.identifier) ?? matchAccount(accList, ex.identifier))
+      : ((rule.accountId ? accList.find((a) => a.id === rule.accountId) : null) ?? matchAccount(accList, ex.identifier));
   const data: TestResult = {
     matched: ruleMatches(rule, email),
     amount: ex.amount,

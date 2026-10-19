@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/db";
-import { categories, scheduledPayments, transactions } from "@/db/schema";
+import { accounts, categories, scheduledPayments, transactions } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import { uid } from "@/lib/context";
 import { localToUtc, toLocalYmd } from "@/lib/format";
@@ -57,8 +57,16 @@ export async function saveTransaction(_prev: FormState, formData: FormData): Pro
   if (!appSettings().currencies.some((c) => c.code === d.currency)) {
     return { error: fmt(t.transactions.errors.currencyNotConfigured, { currency: d.currency }) };
   }
-  if (d.type === "transfer" && (!d.accountId || !d.toAccountId)) {
+  if (d.type === "transfer" && !d.toAccountId) {
     return { error: t.transactions.errors.transferNeedsAccounts };
+  }
+  // Sin origen sólo si es un pago a tarjeta de crédito hecho desde fuera (efectivo, otro banco)
+  if (d.type === "transfer" && !d.accountId) {
+    const [to] = await db
+      .select({ type: accounts.type })
+      .from(accounts)
+      .where(and(eq(accounts.id, d.toAccountId!), eq(accounts.userId, uid())));
+    if (to?.type !== "credit_card") return { error: t.transactions.errors.transferNeedsAccounts };
   }
   if (d.type === "transfer" && d.accountId === d.toAccountId) {
     return { error: t.transactions.errors.transferSameAccount };

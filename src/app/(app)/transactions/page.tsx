@@ -222,7 +222,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
                       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">
                         <span className="truncate">
                           {tx.type === "transfer"
-                            ? `${accountName ?? "?"} → ${toAccountName ?? "?"}`
+                            ? `${accountName ?? (toAccountName ? tt.form.externalSource : "?")} → ${toAccountName ?? "?"}`
                             : [categoryName, accountName].filter(Boolean).join(" · ") || "—"}
                         </span>
                         {!accountName && tx.detectedIdentifier && tx.type !== "transfer" && <Badge tone="warn">•••• {tx.detectedIdentifier}</Badge>}
@@ -277,7 +277,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
         <Sheet title={formInitial.id ? tt.sheet.editTitle : tt.sheet.newTitle} closeHref={here}>
           <TransactionForm
             initial={formInitial}
-            accounts={accountList.map((a) => ({ id: a.id, name: a.name, currency: a.currency, archived: a.archived, identifiers: a.identifiers }))}
+            accounts={accountList.map((a) => ({ id: a.id, name: a.name, currency: a.currency, archived: a.archived, identifiers: a.identifiers, type: a.type }))}
             categories={categoryList.map((c) => ({ id: c.id, name: c.name, kind: c.kind, icon: c.icon }))}
             currencies={appSettings().currencies.map((c) => ({ code: c.code, symbol: c.symbol, name: c.name }))}
             returnTo={here}

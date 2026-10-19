@@ -100,3 +100,19 @@ export function dueLabel(daysLeft: number, l: DueLabels) {
   if (daysLeft > 1) return plural(daysLeft, l.inDays);
   return daysLeft === -1 ? l.yesterday : plural(-daysLeft, l.overdueDays);
 }
+
+// --- Ciclo de las tarjetas de crédito (día de corte y día límite de pago) ---
+
+/** Último corte hasta hoy (incluido) para un día de corte; en meses cortos se usa su último día. */
+export function lastStatementDate(statementDay: number, today: string) {
+  const [y, m] = today.split("-").map(Number);
+  const thisMonth = fmt(new Date(Date.UTC(y, m - 1, Math.min(statementDay, lastDayOf(y, m - 1)))));
+  return thisMonth <= today ? thisMonth : addMonthsAnchored(thisMonth, -1, statementDay);
+}
+
+/** Fecha límite para pagar el estado cortado en `statement`: el primer `dueDay` posterior al corte. */
+export function dueDateAfter(statement: string, dueDay: number) {
+  const [y, m] = statement.split("-").map(Number);
+  const sameMonth = fmt(new Date(Date.UTC(y, m - 1, Math.min(dueDay, lastDayOf(y, m - 1)))));
+  return sameMonth > statement ? sameMonth : addMonthsAnchored(sameMonth, 1, dueDay);
+}
