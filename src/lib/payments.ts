@@ -8,6 +8,7 @@ import { getT, fmt } from "@/i18n/server";
 import { advanceDue, diffDays, dueLabel, FREQUENCIES, type Frequency } from "./payments-shared";
 import { appSettings, currencyInfo } from "./settings";
 import { uid } from "./context";
+import { mailNotification, type MailDetail } from "./mailer";
 
 export type PaymentView = ScheduledPayment & {
   accountName: string | null;
@@ -197,14 +198,18 @@ export async function advancePayment(p: ScheduledPayment): Promise<ScheduledPaym
 
 type NewNotification = { key: string; kind: string; title: string; body?: string | null; href?: string | null; paymentId?: number | null };
 
-/** Crea el aviso si no existía. Los avisos anteriores del mismo pago se marcan como leídos. */
-async function notify(n: NewNotification) {
+/**
+ * Crea el aviso si no existía y, si es nuevo, lo manda por correo (según Ajustes → Avisos).
+ * Los avisos anteriores del mismo pago se marcan como leídos.
+ */
+async function notify(n: NewNotification, details?: MailDetail[]) {
   const userId = uid();
   const [row] = await db
     .insert(notifications)
     .values({ ...n, userId, body: n.body ?? null, href: n.href ?? null, paymentId: n.paymentId ?? null })
     .onConflictDoNothing({ target: [notifications.userId, notifications.key] })
     .returning({ id: notifications.id });
+  if (row) await mailNotification({ ...n, details });
   if (row && n.paymentId) {
     await db
       .update(notifications)
@@ -213,6 +218,26 @@ async function notify(n: NewNotification) {
         and(eq(notifications.userId, userId), eq(notifications.paymentId, n.paymentId), isNull(notifications.readAt), ne(notifications.id, row.id)),
       );
   }
+}
+
+/** Filas del correo de un aviso de pago: monto, vencimiento, cuota y cuenta. */
+function mailDetails(p: ScheduledPayment, names: Map<number, string>): MailDetail[] {
+  const t = getT();
+  const d = t.settings.mail.details;
+  const rows: MailDetail[] = [
+    { label: d.amount, value: amountText(p) },
+    { label: d.due, value: formatYmd(p.nextDue, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) },
+  ];
+  if (p.kind === "financing" && p.currentInstallment && p.totalInstallments)
+    rows.push({ label: d.installment, value: `${p.currentInstallment} / ${p.totalInstallments}` });
+  if (p.kind === "deposit") {
+    const to = (p.toAccountId && names.get(p.toAccountId)) || p.destination;
+    if (to) rows.push({ label: d.depositTo, value: to });
+  } else {
+    const acc = p.accountId ? names.get(p.accountId) : null;
+    if (acc) rows.push({ label: d.account, value: acc });
+  }
+  return rows;
 }
 
 function reminderBody(p: ScheduledPayment, names: Map<number, string>) {
@@ -266,7 +291,7 @@ export async function runPaymentScheduler({ force = false } = {}) {
         body: `${amountText(p)}${inst}${acc ? ` · ${acc}` : ""}${p.autoRecord && p.amount ? ` · ${t.notify.recorded}` : ""}`,
         href: "/payments",
         paymentId: p.id,
-      });
+      }, mailDetails(p, names));
       p = await advancePayment(p);
     }
     if (!p.active) continue;
@@ -280,7 +305,7 @@ export async function runPaymentScheduler({ force = false } = {}) {
         body: fmt(t.notify.overdueBody, { amount: amountText(p), date: formatYmd(p.nextDue) }),
         href: `/payments?pay=${p.id}`,
         paymentId: p.id,
-      });
+      }, mailDetails(p, names));
       continue;
     }
     const threshold = [...new Set(p.reminderDays)].filter((d) => d >= 0).sort((a, b) => a - b).find((d) => left <= d);
@@ -292,7 +317,7 @@ export async function runPaymentScheduler({ force = false } = {}) {
       body: reminderBody(p, names),
       href: p.payMode === "auto" ? "/payments" : `/payments?pay=${p.id}`,
       paymentId: p.id,
-    });
+    }, mailDetails(p, names));
   }
 
   // Limpieza: avisos leídos de hace más de 90 días

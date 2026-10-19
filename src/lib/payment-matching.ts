@@ -5,6 +5,7 @@ import { notifications, scheduledPayments, transactions, type ScheduledPayment, 
 import { fmt, getT } from "@/i18n/server";
 import { uid } from "./context";
 import { money, toLocalYmd } from "./format";
+import { mailNotification } from "./mailer";
 import { advancePayment } from "./payments";
 import { addDays, FREQUENCIES, type Frequency } from "./payments-shared";
 
@@ -57,18 +58,18 @@ export async function settleWithTransaction(p: ScheduledPayment, tx: Transaction
   await advancePayment(p);
   if (how === "auto") {
     const t = getT().payments.notify;
-    await db
+    const note = {
+      kind: "paid",
+      title: fmt(t.paidTitle, { name: p.name }),
+      body: fmt(t.paidBody, { amount: money(tx.amount, tx.currency), merchant: tx.merchant || tx.description || t.paidFallback }),
+      href: `/transactions?edit=${tx.id}`,
+    };
+    const [row] = await db
       .insert(notifications)
-      .values({
-        userId,
-        key: `matched:${p.id}:${due}`,
-        kind: "paid",
-        title: fmt(t.paidTitle, { name: p.name }),
-        body: fmt(t.paidBody, { amount: money(tx.amount, tx.currency), merchant: tx.merchant || tx.description || t.paidFallback }),
-        href: `/transactions?edit=${tx.id}`,
-        paymentId: p.id,
-      })
-      .onConflictDoNothing({ target: [notifications.userId, notifications.key] });
+      .values({ ...note, userId, key: `matched:${p.id}:${due}`, paymentId: p.id })
+      .onConflictDoNothing({ target: [notifications.userId, notifications.key] })
+      .returning({ id: notifications.id });
+    if (row) await mailNotification(note);
   }
 }
 

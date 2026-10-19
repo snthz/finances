@@ -41,6 +41,32 @@ export type AiSettings = {
   models: string[];
 };
 
+/** Tipos de aviso de la campanita que también se pueden mandar por correo */
+export const MAIL_KINDS = ["reminder", "overdue", "charged", "paid", "completed"] as const;
+export type MailKind = (typeof MAIL_KINDS)[number];
+export const DEFAULT_MAIL_KINDS: MailKind[] = ["reminder", "overdue"];
+export const isMailKind = (v: unknown): v is MailKind => typeof v === "string" && (MAIL_KINDS as readonly string[]).includes(v);
+
+export const SMTP_SECURITY = ["ssl", "starttls", "none"] as const;
+export type SmtpSecurity = (typeof SMTP_SECURITY)[number];
+export const isSmtpSecurity = (v: unknown): v is SmtpSecurity => typeof v === "string" && (SMTP_SECURITY as readonly string[]).includes(v);
+
+export type SmtpSettings = {
+  host: string;
+  port: number;
+  security: SmtpSecurity;
+  user: string;
+  /** Contraseña descifrada: sólo en el servidor, nunca se envía al navegador */
+  pass: string;
+  /** Remitente (dirección) y nombre que se muestra */
+  from: string;
+  fromName: string;
+  /** Destinatarios de los avisos (vacío = el correo de la cuenta) */
+  recipients: string[];
+  kinds: MailKind[];
+  enabled: boolean;
+};
+
 export type AppSettings = {
   baseCurrency: string;
   timezone: string;
@@ -53,6 +79,7 @@ export type AppSettings = {
   /** Crear reglas con IA automáticamente para correos no reconocidos */
   aiAutoRules: boolean;
   ai: AiSettings;
+  smtp: SmtpSettings;
 };
 
 /** Claves por usuario (tabla user_settings) */
@@ -68,6 +95,20 @@ export const KEYS = {
   aiModels: "ai.models",
   presetsVersion: "rules.presetsVersion",
   ratesUpdatedAt: "rates.updatedAt",
+  smtpHost: "smtp.host",
+  smtpPort: "smtp.port",
+  smtpSecurity: "smtp.security",
+  smtpUser: "smtp.user",
+  smtpPass: "smtp.pass",
+  smtpFrom: "smtp.from",
+  smtpFromName: "smtp.fromName",
+  smtpRecipients: "smtp.recipients",
+  smtpKinds: "smtp.kinds",
+  smtpEnabled: "smtp.enabled",
+  /** Origen público de la app visto al guardar el SMTP (para los enlaces de los correos si no hay APP_URL) */
+  smtpLinkBase: "smtp.linkBase",
+  /** Resultado del último envío: { ok, at, message? } */
+  smtpLastResult: "smtp.lastResult",
 } as const;
 
 /** Claves globales (tabla settings) */
@@ -79,7 +120,7 @@ export const GLOBAL_KEYS = {
 const g = globalThis as unknown as { __financeUserSettings?: Map<number, AppSettings>; __financeSecret?: string };
 const cache = (g.__financeUserSettings ??= new Map<number, AppSettings>());
 
-function defaults(): Omit<AppSettings, "currencies" | "emailAccounts"> {
+function defaults(): Omit<AppSettings, "currencies" | "emailAccounts" | "smtp"> {
   return {
     baseCurrency: (process.env.DEFAULT_CURRENCY || "USD").toUpperCase(),
     timezone: process.env.TZ || "UTC",
@@ -208,6 +249,24 @@ function parseModels(raw: string | undefined) {
   }
 }
 
+async function loadSmtp(map: Map<string, string>): Promise<SmtpSettings> {
+  const security = map.get(KEYS.smtpSecurity);
+  const passEnc = map.get(KEYS.smtpPass);
+  const kinds = map.has(KEYS.smtpKinds) ? parseModels(map.get(KEYS.smtpKinds)).filter(isMailKind) : DEFAULT_MAIL_KINDS;
+  return {
+    host: map.get(KEYS.smtpHost) ?? "",
+    port: Number(map.get(KEYS.smtpPort) ?? 465),
+    security: isSmtpSecurity(security) ? security : "ssl",
+    user: map.get(KEYS.smtpUser) ?? "",
+    pass: passEnc ? ((await decrypt(passEnc)) ?? "") : "",
+    from: map.get(KEYS.smtpFrom) ?? "",
+    fromName: map.get(KEYS.smtpFromName) ?? "",
+    recipients: parseModels(map.get(KEYS.smtpRecipients)),
+    kinds,
+    enabled: map.get(KEYS.smtpEnabled) === "true",
+  };
+}
+
 /** Recarga la caché de un usuario desde la base de datos. Llamar tras cualquier cambio de sus ajustes. */
 export async function reloadSettings(userId = uid()) {
   const d = defaults();
@@ -250,6 +309,7 @@ export async function reloadSettings(userId = uid()) {
       keyHint: apiKey ? apiKey.slice(-4) : "",
       models: parseModels(map.get(KEYS.aiModels)),
     },
+    smtp: await loadSmtp(map),
   };
   cache.set(userId, s);
   return s;

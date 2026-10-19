@@ -1,5 +1,5 @@
 import { count, desc, eq } from "drizzle-orm";
-import { ChevronRight, CircleDollarSign, ExternalLink, Filter, Globe, KeyRound, LogOut, Mail, Plus, RefreshCw, Settings2, ShieldCheck, Sparkles, UserRound } from "lucide-react";
+import { BellRing, ChevronRight, CircleDollarSign, ExternalLink, Filter, Globe, KeyRound, LogOut, Mail, Plus, RefreshCw, Send, Settings2, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import Link from "next/link";
 import { GoogleButton } from "@/components/google-button";
 import { googleConfigured } from "@/lib/google-oauth";
@@ -11,20 +11,24 @@ import {
   deleteCurrency,
   deleteEmailAccount,
   deleteImportedEmails,
+  removeSmtp,
   resetAccountData,
   saveAiKey,
   saveAiModel,
   saveCurrency,
   saveGeneral,
+  saveMailAlerts,
   saveProfile,
+  saveSmtpServer,
   saveSyncInterval,
+  sendTestEmail,
   updateRatesNow,
 } from "@/actions/settings";
 import { ActionForm, SubmitButton } from "@/components/action-form";
 import { AvatarPicker } from "@/components/avatar-picker";
 import { ConfirmButton } from "@/components/confirm-button";
 import { EmailAccountForm, SyncAccountButton } from "@/components/email-sync";
-import { Field, Segmented, Switch, TagInput } from "@/components/form/controls";
+import { ChipGroup, Field, Segmented, Switch, TagInput } from "@/components/form/controls";
 import { PasswordInput } from "@/components/form/password-input";
 import { Select } from "@/components/form/select";
 import { Sheet, SheetFooter } from "@/components/form/sheet";
@@ -43,7 +47,8 @@ import { GmailFilterGenerator } from "@/components/gmail-filter-generator";
 import { aiConfigured } from "@/lib/ai";
 import { AI_PRICING_URLS, AI_PROVIDER_NAMES, aiModelPrice, fmtUsd, SUGGESTED_AI_MODELS, type AiProviderId } from "@/lib/ai-models";
 import { uid } from "@/lib/context";
-import { appSettings, currencyRate, defaultImapHost, getSetting } from "@/lib/settings";
+import { lastMailResult, smtpConfigured } from "@/lib/mailer";
+import { appSettings, currencyRate, defaultImapHost, getSetting, MAIL_KINDS } from "@/lib/settings";
 import { LOCALES, LOCALE_NAMES } from "@/i18n/config";
 import { fmt, getT, plural } from "@/i18n/server";
 
@@ -58,6 +63,7 @@ const TABS = [
   { id: "monedas", key: "currencies", icon: CircleDollarSign },
   { id: "correos", key: "email", icon: Mail },
   { id: "ia", key: "ai", icon: Sparkles },
+  { id: "avisos", key: "notifications", icon: BellRing },
   { id: "cuenta", key: "account", icon: UserRound },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
@@ -137,6 +143,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
           {tab === "monedas" && <CurrenciesTab sp={sp} />}
           {tab === "correos" && <EmailTab sp={sp} />}
           {tab === "ia" && <AiTab sp={sp} />}
+          {tab === "avisos" && <NotificationsTab email={user.email} />}
           {tab === "cuenta" && (
             <AccountTab name={user.name} email={user.email} avatar={user.avatar} hasPassword={Boolean(user.passwordHash)} googleLinked={Boolean(user.googleId)} linkedNotice={sp.linked === "google"} />
           )}
@@ -780,6 +787,125 @@ async function AiTab({ sp }: { sp: Awaited<SP> }) {
             <p className="text-sm text-ink-2">{tr.autoNeedsKey}</p>
           )}
         </Card>
+      </Section>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- Avisos
+
+async function NotificationsTab({ email }: { email: string }) {
+  const smtp = appSettings().smtp;
+  const configured = smtpConfigured(smtp);
+  const last = configured ? await lastMailResult() : null;
+  const t = getT();
+  const tr = t.settings.page.notifications;
+  const status = !smtp.enabled ? { tone: "outline" as const, text: tr.status.off } : last && !last.ok ? { tone: "bad" as const, text: tr.status.error } : { tone: "solid" as const, text: tr.status.on };
+
+  return (
+    <>
+      <Section title={tr.serverTitle} description={tr.serverDescription}>
+        {configured && (
+          <div className="card flex items-center gap-3 px-5 py-4">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface-2">
+              <Mail className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2 text-[15px] font-medium">
+                <span className="truncate">{smtp.from}</span>
+                <Badge tone={status.tone}>{status.text}</Badge>
+              </span>
+              <span className="block truncate font-mono text-xs text-muted">
+                {smtp.host}:{smtp.port}
+              </span>
+              {last && (
+                <span className={`mt-0.5 block truncate text-xs ${last.ok ? "text-muted" : "text-bad"}`}>
+                  {last.ok ? fmt(tr.lastOk, { date: formatDateTime(new Date(last.at)) }) : fmt(tr.lastError, { date: formatDateTime(new Date(last.at)), error: last.message ?? "" })}
+                </span>
+              )}
+            </span>
+            <ActionForm action={removeSmtp}>
+              <ConfirmButton confirmLabel={tr.confirmRemove} className="btn-danger h-9">
+                {tr.remove}
+              </ConfirmButton>
+            </ActionForm>
+          </div>
+        )}
+
+        <ActionForm action={saveSmtpServer} className="card overflow-hidden">
+          <div className="space-y-4 p-5">
+            <Switch name="enabled" defaultChecked={configured ? smtp.enabled : true} label={tr.enabled} hint={tr.enabledHint} />
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_6.5rem]">
+              <Field label={tr.host} htmlFor="smtpHost">
+                <input id="smtpHost" name="host" required defaultValue={smtp.host} placeholder={tr.hostPlaceholder} autoComplete="off" spellCheck={false} className="input" />
+              </Field>
+              <Field label={tr.port} htmlFor="smtpPort">
+                <input id="smtpPort" name="port" type="number" min={1} max={65535} required defaultValue={smtp.port} className="input tabular" />
+              </Field>
+            </div>
+            <Field label={tr.security} hint={tr.securityHint}>
+              <Segmented
+                name="security"
+                defaultValue={smtp.security}
+                options={[
+                  { value: "ssl", label: tr.securitySsl },
+                  { value: "starttls", label: tr.securityStarttls },
+                  { value: "none", label: tr.securityNone },
+                ]}
+              />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={tr.user} htmlFor="smtpUser" hint={tr.userHint}>
+                <input id="smtpUser" name="user" defaultValue={smtp.user} placeholder={tr.userPlaceholder} autoComplete="off" spellCheck={false} className="input" />
+              </Field>
+              <Field label={tr.password} htmlFor="smtpPass" hint={smtp.pass ? tr.passwordKeepHint : tr.passwordNewHint}>
+                <PasswordInput id="smtpPass" name="pass" autoComplete="new-password" placeholder={smtp.pass ? "••••••••" : ""} className="font-mono" />
+              </Field>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={tr.from} htmlFor="smtpFrom" hint={tr.fromHint}>
+                <input id="smtpFrom" name="from" type="email" required defaultValue={smtp.from} placeholder={tr.fromPlaceholder} className="input" />
+              </Field>
+              <Field label={tr.fromName} htmlFor="smtpFromName">
+                <input id="smtpFromName" name="fromName" defaultValue={smtp.fromName} placeholder={tr.fromNamePlaceholder} className="input" />
+              </Field>
+            </div>
+            <p className="text-xs leading-relaxed text-muted">{tr.gmailTip}</p>
+          </div>
+          <CardFooter>
+            <SubmitButton className="btn-primary h-9" pendingText={tr.testing}>
+              {tr.save}
+            </SubmitButton>
+          </CardFooter>
+        </ActionForm>
+      </Section>
+
+      <Section title={tr.alertsTitle} description={tr.alertsDescription}>
+        <ActionForm action={saveMailAlerts} className="card overflow-hidden">
+          <div className="space-y-5 p-5">
+            <Field label={tr.recipients} hint={fmt(tr.recipientsHint, { email })}>
+              <TagInput name="recipients" defaultValue={smtp.recipients} placeholder={tr.recipientsPlaceholder} inputMode="email" />
+            </Field>
+            <Field label={tr.kinds} hint={tr.kindsHint}>
+              <ChipGroup name="kinds" multiple defaultValue={smtp.kinds} options={MAIL_KINDS.map((k) => ({ value: k, label: tr.kindNames[k] }))} />
+            </Field>
+          </div>
+          <CardFooter>
+            <SubmitButton className="btn-primary h-9">{t.common.actions.save}</SubmitButton>
+          </CardFooter>
+        </ActionForm>
+
+        <ActionForm action={sendTestEmail} className="card flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{tr.testTitle}</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted">{configured ? tr.testHint : tr.needsServer}</p>
+          </div>
+          {configured && (
+            <SubmitButton className="btn-subtle h-9 shrink-0 self-start sm:self-auto" pendingText={tr.sending}>
+              <Send className="size-3.5" /> {tr.test}
+            </SubmitButton>
+          )}
+        </ActionForm>
       </Section>
     </>
   );

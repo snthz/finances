@@ -2,6 +2,7 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/db";
@@ -14,9 +15,21 @@ import { hashPassword, requireAuth, setLangCookie, verifyPassword } from "@/lib/
 import { uid } from "@/lib/context";
 import { catalogFor, initialAliases } from "@/lib/currency-catalog";
 import { restartWatcher, stopWatchers } from "@/lib/email/sync";
+import { sendTestMail, verifySmtp } from "@/lib/mailer";
 import { changeBaseCurrency, refreshRates } from "@/lib/rates";
 import { seedUser } from "@/lib/seed";
-import { appSettings, defaultImapHost, encrypt, isAiProvider, KEYS, reloadSettings, setSetting } from "@/lib/settings";
+import {
+  appSettings,
+  defaultImapHost,
+  deleteSetting,
+  encrypt,
+  isAiProvider,
+  isMailKind,
+  isSmtpSecurity,
+  KEYS,
+  reloadSettings,
+  setSetting,
+} from "@/lib/settings";
 import type { FormState } from "./types";
 
 /** Revalida todo el layout (incluye el cambio de idioma) y devuelve el mensaje o el estado dado. */
@@ -349,4 +362,98 @@ export async function saveAiModel(_prev: FormState, formData: FormData): Promise
   const r = await setAiModel(String(formData.get("model") ?? ""));
   if (!r.ok) return { error: r.error };
   return done(getT().settings.actions.aiModelSaved);
+}
+
+// ---------- Avisos por correo (SMTP de cada usuario) ----------
+
+const smtpSchema = z.object({
+  host: z.string().trim().min(1, { error: () => getT().settings.errors.smtpHostRequired }).max(255),
+  port: z.coerce.number().int().min(1).max(65535),
+  security: z.string().refine(isSmtpSecurity),
+  user: z.string().trim().max(255).optional(),
+  pass: z.string().optional(),
+  from: z.email({ error: () => getT().settings.errors.invalidAddress }).trim().toLowerCase(),
+  fromName: z.string().trim().max(80).optional(),
+  enabled: z.preprocess((v) => v === "on", z.boolean()),
+});
+
+/** Origen público de la petición, para los enlaces de los correos que salen sin petición (cron). */
+async function requestOrigin() {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  if (!host) return null;
+  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https");
+  return `${proto.split(",")[0].trim()}://${host.split(",")[0].trim()}`;
+}
+
+/** Guarda el servidor SMTP y prueba la conexión (se guarda aunque falle, para poder corregirlo). */
+export async function saveSmtpServer(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireAuth();
+  const t = getT();
+  const parsed = smtpSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? t.common.errors.invalidData };
+  const d = parsed.data;
+  const prev = appSettings().smtp;
+  const user = d.user ?? "";
+  // Contraseña vacía = conservar la guardada (si el usuario no cambió)
+  const pass = d.pass ? d.pass : user === prev.user ? prev.pass : "";
+  if (user && !pass) return { error: t.settings.errors.smtpPasswordRequired };
+
+  await setSetting(KEYS.smtpHost, d.host);
+  await setSetting(KEYS.smtpPort, String(d.port));
+  await setSetting(KEYS.smtpSecurity, d.security);
+  await setSetting(KEYS.smtpUser, user);
+  if (pass) await setSetting(KEYS.smtpPass, await encrypt(pass));
+  else await deleteSetting(KEYS.smtpPass);
+  await setSetting(KEYS.smtpFrom, d.from);
+  await setSetting(KEYS.smtpFromName, d.fromName ?? "");
+  await setSetting(KEYS.smtpEnabled, String(d.enabled));
+  const origin = await requestOrigin();
+  if (origin) await setSetting(KEYS.smtpLinkBase, origin);
+  await reloadSettings();
+
+  const r = await verifySmtp();
+  if (!r.ok) return done({ error: fmt(t.settings.errors.smtpSavedButFailed, { error: r.error }) });
+  return done(t.settings.actions.smtpSaved);
+}
+
+/** Destinatarios y tipos de aviso que se mandan por correo. */
+export async function saveMailAlerts(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireAuth();
+  const t = getT();
+  const recipients = Array.from(
+    new Set(
+      String(formData.get("recipients") ?? "")
+        .split(",")
+        .map((x) => x.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+  const bad = recipients.find((r) => !z.email().safeParse(r).success);
+  if (bad) return { error: fmt(t.settings.errors.invalidRecipient, { email: bad }) };
+  if (recipients.length > 20) return { error: t.settings.errors.tooManyRecipients };
+  const kinds = String(formData.get("kinds") ?? "")
+    .split(",")
+    .filter(isMailKind);
+  await setSetting(KEYS.smtpRecipients, JSON.stringify(recipients));
+  await setSetting(KEYS.smtpKinds, JSON.stringify(kinds));
+  await reloadSettings();
+  return done(t.settings.actions.saved);
+}
+
+export async function sendTestEmail(_prev: FormState, _formData: FormData): Promise<FormState> {
+  await requireAuth();
+  const t = getT();
+  const r = await sendTestMail();
+  revalidatePath("/settings");
+  if (!r.ok) return { error: fmt(t.settings.errors.testFailed, { error: r.error }) };
+  return { ok: true, message: fmt(t.settings.actions.testSent, { to: r.to.join(", ") }) };
+}
+
+export async function removeSmtp(_prev: FormState, _formData: FormData): Promise<FormState> {
+  await requireAuth();
+  for (const k of [KEYS.smtpHost, KEYS.smtpPort, KEYS.smtpSecurity, KEYS.smtpUser, KEYS.smtpPass, KEYS.smtpFrom, KEYS.smtpFromName, KEYS.smtpEnabled, KEYS.smtpLastResult])
+    await deleteSetting(k);
+  await reloadSettings();
+  return done(getT().settings.actions.smtpRemoved);
 }
