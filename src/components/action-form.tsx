@@ -8,7 +8,8 @@ import { useT } from "@/i18n/client";
 
 type Action = (prev: FormState, formData: FormData) => Promise<FormState>;
 
-const PendingContext = createContext(false);
+/** Estado de envío para <SubmitButton> en forms que no usan <ActionForm>. */
+export const PendingContext = createContext(false);
 
 /**
  * Envía el form sin el reseteo automático de React 19 (que borraría lo escrito

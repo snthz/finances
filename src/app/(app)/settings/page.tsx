@@ -10,19 +10,20 @@ import {
   deleteAiKey,
   deleteCurrency,
   deleteEmailAccount,
+  deleteImportedEmails,
+  resetAccountData,
   saveAiKey,
   saveAiModel,
   saveCurrency,
-  saveEmailAccount,
   saveGeneral,
   saveProfile,
   saveSyncInterval,
-  syncNow,
   updateRatesNow,
 } from "@/actions/settings";
 import { ActionForm, SubmitButton } from "@/components/action-form";
 import { AvatarPicker } from "@/components/avatar-picker";
 import { ConfirmButton } from "@/components/confirm-button";
+import { EmailAccountForm, SyncAccountButton } from "@/components/email-sync";
 import { Field, Segmented, Switch, TagInput } from "@/components/form/controls";
 import { PasswordInput } from "@/components/form/password-input";
 import { Select } from "@/components/form/select";
@@ -488,7 +489,7 @@ async function EmailTab({ sp }: { sp: Awaited<SP> }) {
 
       {(editing || sp.new) && (
         <Sheet title={editing ? editing.label : tr.sheet.newTitle} description={editing?.address ?? tr.sheet.newDescription} closeHref="/settings?tab=correos">
-          <ActionForm action={saveEmailAccount} className="space-y-5">
+          <EmailAccountForm closeHref="/settings?tab=correos" className="space-y-5">
             {editing && <input type="hidden" name="id" value={editing.id} />}
             <Field label={tr.sheet.address} htmlFor="address">
               <input
@@ -558,25 +559,16 @@ async function EmailTab({ sp }: { sp: Awaited<SP> }) {
                   {tr.sheet.disconnect}
                 </ConfirmButton>
               )}
-              {editing && (
-                <button type="submit" form="sync-email-account" className="btn-subtle" aria-label={tr.sheet.syncNow} title={tr.sheet.syncNow}>
-                  <RefreshCw className="size-4" />
-                </button>
-              )}
+              {editing && <SyncAccountButton id={editing.id} label={tr.sheet.syncNow} />}
               <SubmitButton pendingText={tr.sheet.connecting} className="btn-primary ml-auto h-11 flex-1 sm:flex-none sm:px-8">
                 {editing ? t.common.actions.save : tr.sheet.connect}
               </SubmitButton>
             </SheetFooter>
-          </ActionForm>
+          </EmailAccountForm>
           {editing && (
-            <>
-              <form id="delete-email-account" action={deleteEmailAccount}>
-                <input type="hidden" name="id" value={editing.id} />
-              </form>
-              <ActionForm id="sync-email-account" action={syncNow}>
-                <input type="hidden" name="id" value={editing.id} />
-              </ActionForm>
-            </>
+            <form id="delete-email-account" action={deleteEmailAccount}>
+              <input type="hidden" name="id" value={editing.id} />
+            </form>
           )}
         </Sheet>
       )}
@@ -788,6 +780,25 @@ function AccountTab({
         </form>
       </Section>
 
+      <Section title={tr.dataTitle} description={tr.dataDescription}>
+        <div className="card divide-y divide-line overflow-hidden border-bad/30">
+          {[
+            { action: deleteImportedEmails, title: tr.deleteEmailsTitle, hint: tr.deleteEmailsHint, label: tr.deleteEmails, confirm: tr.deleteEmailsConfirm },
+            { action: resetAccountData, title: tr.resetTitle, hint: tr.resetHint, label: tr.reset, confirm: tr.resetConfirm },
+          ].map((d) => (
+            <ActionForm key={d.title} action={d.action} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{d.title}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-muted">{d.hint}</p>
+              </div>
+              <ConfirmButton confirmLabel={d.confirm} description={d.hint} className="btn-danger h-9 shrink-0 self-start sm:self-auto">
+                {d.label}
+              </ConfirmButton>
+            </ActionForm>
+          ))}
+        </div>
+      </Section>
+
       <Section title={tr.dangerTitle} description={tr.dangerDescription}>
         <ActionForm action={deleteAccount} className="card overflow-hidden border-bad/30">
           <div className="p-5">
@@ -796,7 +807,7 @@ function AccountTab({
             </Field>
           </div>
           <CardFooter>
-            <ConfirmButton confirmLabel={tr.deleteConfirm} className="btn-danger h-9">
+            <ConfirmButton confirmLabel={tr.deleteConfirm} description={tr.dangerDescription} className="btn-danger h-9">
               {tr.deleteAccount}
             </ConfirmButton>
           </CardFooter>

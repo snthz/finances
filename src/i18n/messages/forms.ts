@@ -1,7 +1,7 @@
 // Textos de los componentes compartidos (formularios, selects, sheets, gráficas). `en` es la fuente de verdad; `es` debe tener la misma forma.
 
 const en = {
-  confirmAgain: "Sure? Tap again",
+  confirmDialog: { title: "Are you sure?", description: "This can't be undone." },
   select: {
     placeholder: "Select…",
     search: "Search…",
@@ -60,7 +60,7 @@ const en = {
 };
 
 const es: typeof en = {
-  confirmAgain: "¿Seguro? Toca de nuevo",
+  confirmDialog: { title: "¿Seguro?", description: "Esta acción no se puede deshacer." },
   select: {
     placeholder: "Selecciona…",
     search: "Buscar…",

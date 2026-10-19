@@ -250,9 +250,12 @@ export async function reprocessPending() {
 }
 
 
-export async function syncAll() {
+/** Rango de fechas locales (YYYY-MM-DD, ambos incluidos) para importar correos de un periodo concreto. */
+export type SyncRange = { from: string; to: string };
+
+export async function syncAll(range?: SyncRange) {
   const results: (SyncResult & { accountId: number; label: string })[] = [];
-  for (const acc of activeEmailAccounts()) results.push({ ...(await syncAccount(acc.id)), accountId: acc.id, label: acc.label });
+  for (const acc of activeEmailAccounts()) results.push({ ...(await syncAccount(acc.id, range)), accountId: acc.id, label: acc.label });
   return results;
 }
 
@@ -267,11 +270,20 @@ export async function syncEveryone() {
 const EMPTY_RESULT = (): SyncResult => ({ ok: false, fetched: 0, created: 0, unmatched: 0, ignored: 0, errors: 0, finishedAt: new Date().toISOString() });
 
 /** Sincroniza una cuenta de correo como su dueño (se puede llamar desde tareas de fondo). */
-export function syncAccount(accountId: number): Promise<SyncResult> {
-  return asOwner(accountId, () => syncAccountAsOwner(accountId), EMPTY_RESULT());
+export function syncAccount(accountId: number, range?: SyncRange): Promise<SyncResult> {
+  return asOwner(accountId, () => syncAccountAsOwner(accountId, range), EMPTY_RESULT());
 }
 
-async function syncAccountAsOwner(accountId: number): Promise<SyncResult> {
+/** Espera a que termine la sincronización en curso de una cuenta, si hay una. */
+export async function waitForSync(accountId: number, timeoutMs = 120_000) {
+  const end = Date.now() + timeoutMs;
+  while (running.has(accountId) && Date.now() < end) await new Promise((r) => setTimeout(r, 500));
+}
+
+// IMAP SINCE/BEFORE sólo comparan la fecha: el mediodía UTC evita que la zona horaria la mueva de día
+const imapDay = (ymd: string, addDays = 0) => new Date(Date.parse(`${ymd}T12:00:00Z`) + addDays * 86_400_000);
+
+async function syncAccountAsOwner(accountId: number, range?: SyncRange): Promise<SyncResult> {
   const userId = uid();
   const base = { fetched: 0, created: 0, unmatched: 0, ignored: 0, errors: 0 };
   const acc = findAccount(accountId);
@@ -298,7 +310,9 @@ async function syncAccountAsOwner(accountId: number): Promise<SyncResult> {
     await client.connect();
     const lock = await client.getMailboxLock(acc.mailbox, { readOnly: true });
     try {
-      const uids = (await client.search({ since }, { uid: true })) || [];
+      // Con rango: sólo ese periodo (BEFORE excluye el día, por eso +1). Los ya importados se saltan igual
+      const query = range ? { since: imapDay(range.from), before: imapDay(range.to, 1) } : { since };
+      const uids = (await client.search(query, { uid: true })) || [];
       if (uids.length) {
         const envelopes = await client.fetchAll(uids, { uid: true, envelope: true }, { uid: true });
         const ids = envelopes.map((e) => e.envelope?.messageId || `uid:${acc.address}:${acc.mailbox}:${e.uid}`);
@@ -369,7 +383,8 @@ async function syncAccountAsOwner(accountId: number): Promise<SyncResult> {
   result.finishedAt = new Date().toISOString();
   await db
     .update(emailAccounts)
-    .set({ lastResult: result, ...(result.ok ? { lastSyncAt: startedAt } : {}) })
+    // Un rango antiguo no cuenta como sincronización al día
+    .set({ lastResult: result, ...(result.ok && !range ? { lastSyncAt: startedAt } : {}) })
     .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.userId, userId)))
     .catch(() => {});
   if (result.created) console.log(`[email-sync] ${acc.address}: ${result.created} movimientos nuevos`);

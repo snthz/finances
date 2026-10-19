@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { ChevronRight, Inbox as InboxIcon, Mail, Plus, RefreshCw, Sparkles, Wand2 } from "lucide-react";
+import { ChevronRight, Inbox as InboxIcon, Mail, Plus, RotateCw, Sparkles, Wand2 } from "lucide-react";
 import Link from "next/link";
-import { aiRuleFromMessage, deleteRule, runReprocess, runSync } from "@/actions/email";
+import { aiRuleFromMessage, deleteRule, retryMessage, runReprocess } from "@/actions/email";
 import { ActionForm, SubmitButton } from "@/components/action-form";
+import { EmailSyncControls } from "@/components/email-sync";
 import { Sheet } from "@/components/form/sheet";
 import { RuleEditor, type RuleInitial } from "@/components/rule-editor";
 import { Badge, Empty, Notice, PageHeader } from "@/components/ui";
@@ -12,7 +13,7 @@ import { initScope, requireAuth } from "@/lib/auth";
 import { uid } from "@/lib/context";
 import { aiConfigured } from "@/lib/ai";
 import { getWatcherStatus } from "@/lib/email/sync";
-import { formatDateTime, money } from "@/lib/format";
+import { formatDateTime, money, toLocalYmd } from "@/lib/format";
 import { fmt, getT } from "@/i18n/server";
 import { allAccounts, allCategories } from "@/lib/queries";
 import { appSettings } from "@/lib/settings";
@@ -61,13 +62,7 @@ export default async function EmailPage({ searchParams }: { searchParams: SP }) 
         title={t.email.title}
         subtitle={t.email.subtitle}
         actions={
-          accs.length > 0 && (
-            <ActionForm action={runSync} className="flex max-w-md flex-col items-end">
-              <SubmitButton className="btn-ghost" pendingText={t.email.syncing}>
-                <RefreshCw className="size-4" /> {t.email.sync}
-              </SubmitButton>
-            </ActionForm>
-          )
+          accs.length > 0 && <EmailSyncControls accounts={accs.filter((a) => a.enabled).map(({ id, label }) => ({ id, label }))} today={toLocalYmd(new Date())} />
         }
       />
 
@@ -222,6 +217,7 @@ async function Inbox({ sp, counts }: { sp: Awaited<SP>; counts: Record<keyof typ
               {viewing.accountLabel && <Badge tone="outline">{viewing.accountLabel}</Badge>}
               {viewing.ruleName && <span className="text-muted">{fmt(t.email.inbox.rule, { name: viewing.ruleName })}</span>}
             </div>
+            {viewing.m.error && <p className="text-sm text-bad">{viewing.m.error}</p>}
             {viewing.txId && (
               <Link href={`/transactions?month=all&edit=${viewing.txId}`} className="card flex items-center justify-between gap-3 p-4 shadow-none">
                 <span className="text-sm text-ink-2">{fmt(t.email.inbox.txCreated, { type: viewing.txType ? t.common.txTypes[viewing.txType] : t.email.inbox.transaction })}</span>
@@ -233,6 +229,14 @@ async function Inbox({ sp, counts }: { sp: Awaited<SP>; counts: Record<keyof typ
             <pre className="max-h-[50dvh] overflow-auto rounded-2xl bg-surface-2 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">{viewing.m.body}</pre>
             {!viewing.txId && (
               <div className="space-y-2">
+                {(viewing.m.status === "error" || viewing.m.status === "unmatched") && (
+                  <ActionForm action={retryMessage}>
+                    <input type="hidden" name="id" value={viewing.m.id} />
+                    <SubmitButton className="btn-ghost h-11 w-full" pendingText={t.email.inbox.retrying}>
+                      <RotateCw className="size-4" /> {t.email.inbox.retry}
+                    </SubmitButton>
+                  </ActionForm>
+                )}
                 {aiConfigured() && (
                   <ActionForm action={aiRuleFromMessage}>
                     <input type="hidden" name="id" value={viewing.m.id} />

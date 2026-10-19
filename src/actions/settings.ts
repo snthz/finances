@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/db";
-import { accounts, currencies, emailAccounts, transactions, users } from "@/db/schema";
+import { accounts, budgetPlans, categories, currencies, emailAccounts, emailMessages, emailRules, notifications, scheduledPayments, transactions, users } from "@/db/schema";
 import { isValidAvatar } from "@/components/avatar";
 import { isLocale } from "@/i18n/config";
 import { fmt, getT, plural } from "@/i18n/server";
@@ -13,8 +13,9 @@ import { removeAiKey, setAiModel, storeAiKey } from "@/lib/ai";
 import { hashPassword, requireAuth, setLangCookie, verifyPassword } from "@/lib/auth";
 import { uid } from "@/lib/context";
 import { catalogFor, initialAliases } from "@/lib/currency-catalog";
-import { restartWatcher, stopWatchers, syncAccount } from "@/lib/email/sync";
+import { restartWatcher, stopWatchers, syncAccount, waitForSync, type SyncResult } from "@/lib/email/sync";
 import { changeBaseCurrency, refreshRates } from "@/lib/rates";
+import { seedUser } from "@/lib/seed";
 import { appSettings, defaultImapHost, encrypt, isAiProvider, KEYS, reloadSettings, setSetting } from "@/lib/settings";
 import type { FormState } from "./types";
 
@@ -247,12 +248,8 @@ export async function saveEmailAccount(_prev: FormState, formData: FormData): Pr
   await reloadSettings();
   await restartWatcher(id!);
   revalidatePath("/", "layout");
-  if (!d.enabled) redirect("/settings?tab=correos");
-
-  // Prueba la conexión inmediatamente
-  const r = await syncAccount(id!);
-  if (!r.ok && !r.busy) return { error: fmt(t.settings.errors.savedButConnectionFailed, { error: r.message ?? "" }) };
-  redirect("/settings?tab=correos");
+  // El sheet se cierra y la primera sincronización (que prueba la conexión) corre aparte con su propio aviso
+  return d.enabled ? { ok: true, data: { syncId: id } } : { ok: true, message: t.settings.actions.saved };
 }
 
 /** Cambia la etiqueta que vigila una cuenta (desde el generador de filtros). */
@@ -293,18 +290,62 @@ export async function saveSyncInterval(_prev: FormState, formData: FormData): Pr
   return done(t.settings.actions.saved);
 }
 
-export async function syncNow(_prev: FormState, formData: FormData): Promise<FormState> {
+/** Sincroniza una cuenta y espera el resultado (se llama desde el cliente con un aviso de carga). */
+export async function syncEmailAccount(id: number): Promise<FormState> {
   await requireAuth();
-  const id = Number(formData.get("id"));
   if (!Number.isInteger(id) || !ownsEmailAccount(id)) return { error: getT().common.errors.invalidData };
-  const r = await syncAccount(id);
+  let r = await syncAccount(id);
+  if (r.busy) {
+    // El watcher ya estaba sincronizando (p. ej. al conectar): se espera su resultado
+    await waitForSync(id);
+    const [row] = await db
+      .select({ lastResult: emailAccounts.lastResult })
+      .from(emailAccounts)
+      .where(and(eq(emailAccounts.id, id), eq(emailAccounts.userId, uid())));
+    r = (row?.lastResult as SyncResult | null) ?? r;
+  }
   revalidatePath("/", "layout");
-  if (!r.ok) return { error: r.message };
   const t = getT();
+  if (r.busy) return { ok: true, message: t.settings.actions.syncInBackground };
+  if (!r.ok) return { error: fmt(t.settings.errors.connectionFailed, { error: r.message ?? "" }) };
   return {
     ok: true,
     message: `${plural(r.fetched, t.settings.actions.syncEmails)} · ${plural(r.created, t.settings.actions.syncTransactions)}`,
   };
+}
+
+// ---------- Zona de peligro ----------
+
+/** Borra el registro de correos importados. Los movimientos que crearon se conservan. */
+export async function deleteImportedEmails(_prev: FormState, _formData: FormData): Promise<FormState> {
+  await requireAuth();
+  const deleted = await db.delete(emailMessages).where(eq(emailMessages.userId, uid())).returning({ id: emailMessages.id });
+  return done(plural(deleted.length, getT().settings.actions.emailsDeleted));
+}
+
+/**
+ * Deja la cuenta como recién creada: borra movimientos, correos, cuentas, categorías, reglas, pagos,
+ * presupuestos y notificaciones, y restaura las categorías y reglas por defecto. Conserva el perfil,
+ * los ajustes, las monedas, los correos conectados y la clave de IA.
+ */
+export async function resetAccountData(_prev: FormState, _formData: FormData): Promise<FormState> {
+  await requireAuth();
+  const userId = uid();
+  await db.transaction(async (tx) => {
+    await tx.delete(notifications).where(eq(notifications.userId, userId));
+    await tx.delete(transactions).where(eq(transactions.userId, userId));
+    await tx.delete(emailMessages).where(eq(emailMessages.userId, userId));
+    await tx.delete(scheduledPayments).where(eq(scheduledPayments.userId, userId));
+    await tx.delete(budgetPlans).where(eq(budgetPlans.userId, userId));
+    await tx.delete(emailRules).where(eq(emailRules.userId, userId));
+    await tx.delete(accounts).where(eq(accounts.userId, userId));
+    await tx.delete(categories).where(eq(categories.userId, userId));
+  });
+  // Las reglas de bancos conocidos sólo se instalan una vez por versión: se reinicia la marca
+  await setSetting(KEYS.presetsVersion, "0");
+  await seedUser(userId, appSettings().locale);
+  await reloadSettings();
+  return done(getT().settings.actions.dataReset);
 }
 
 // ---------- IA (clave y modelo de cada usuario) ----------
