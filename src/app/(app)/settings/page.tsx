@@ -38,8 +38,8 @@ import { getWatcherStatus } from "@/lib/email/sync";
 import { formatDateTime } from "@/lib/format";
 import { extractAddress } from "@/lib/email/gmail-filter";
 import { GmailFilterGenerator } from "@/components/gmail-filter-generator";
-import { aiConfigured, DAILY_LIMIT } from "@/lib/ai";
-import { AI_PROVIDER_NAMES, SUGGESTED_AI_MODELS, type AiProviderId } from "@/lib/ai-models";
+import { aiConfigured } from "@/lib/ai";
+import { AI_PRICING_URLS, AI_PROVIDER_NAMES, aiModelPrice, SUGGESTED_AI_MODELS, type AiProviderId } from "@/lib/ai-models";
 import { uid } from "@/lib/context";
 import { appSettings, defaultImapHost, getSetting } from "@/lib/settings";
 import { LOCALES, LOCALE_NAMES } from "@/i18n/config";
@@ -536,8 +536,8 @@ async function EmailTab({ sp }: { sp: Awaited<SP> }) {
               <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium text-ink-2">
                 <ChevronRight className="size-4 transition group-open:rotate-90" /> {tr.sheet.advanced}
               </summary>
-              <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                <Field label={tr.sheet.initialDays} htmlFor="initialDays">
+              <div className="mt-4 grid gap-4 sm:grid-cols-[9rem_minmax(0,1fr)_6.5rem]">
+                <Field label={tr.sheet.initialDays} htmlFor="initialDays" hint={tr.sheet.initialDaysHint}>
                   <input id="initialDays" name="initialDays" type="number" min={1} defaultValue={editing?.initialDays ?? 60} className="input tabular" />
                 </Field>
                 <Field label={tr.sheet.imapHost} htmlFor="host">
@@ -583,6 +583,9 @@ const AI_KEY_LINKS: Record<AiProviderId, { href: string; label: string }> = {
   openai: { href: "https://platform.openai.com/api-keys", label: "platform.openai.com/api-keys" },
 };
 
+// Precio por millón de tokens: "0.05", "1.25", "20"
+const usd = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+
 async function AiTab({ sp }: { sp: Awaited<SP> }) {
   // Sólo datos no secretos: proveedor, últimos 4 de la clave y modelos (la clave nunca llega al navegador)
   const { provider, keyHint, model, models } = appSettings().ai;
@@ -616,12 +619,26 @@ async function AiTab({ sp }: { sp: Awaited<SP> }) {
             </div>
             <ActionForm action={saveAiModel}>
               <div className="border-t border-line px-5">
-                <Row label={tr.model} htmlFor="aiModel" hint={tr.modelHint}>
+                <Row
+                  label={tr.model}
+                  htmlFor="aiModel"
+                  hint={
+                    <>
+                      {tr.modelHint}{" "}
+                      <a href={AI_PRICING_URLS[provider]} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-ink underline">
+                        {tr.pricingLink} <ExternalLink className="size-3" />
+                      </a>
+                    </>
+                  }
+                >
                   <Select
                     id="aiModel"
                     name="model"
                     defaultValue={model || modelOptions[0]}
-                    options={modelOptions.map((m) => ({ value: m, label: m }))}
+                    options={modelOptions.map((m) => {
+                      const price = aiModelPrice(m);
+                      return { value: m, label: m, hint: price ? fmt(tr.priceHint, { input: usd(price.input), output: usd(price.output) }) : tr.noPrice };
+                    })}
                   />
                 </Row>
               </div>
@@ -670,7 +687,7 @@ async function AiTab({ sp }: { sp: Awaited<SP> }) {
         <Card>
           {configured ? (
             <ActionForm action={setAiAuto} className="space-y-4">
-              <Switch name="enabled" defaultChecked={appSettings().aiAutoRules} label={tr.autoToggle} hint={fmt(tr.autoHint, { n: aiToday, limit: DAILY_LIMIT })} />
+              <Switch name="enabled" defaultChecked={appSettings().aiAutoRules} label={tr.autoToggle} hint={fmt(tr.autoHint, { n: aiToday })} />
               <div className="flex justify-end">
                 <SubmitButton className="btn-subtle">{t.common.actions.save}</SubmitButton>
               </div>

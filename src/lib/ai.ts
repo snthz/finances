@@ -14,7 +14,6 @@ import { fmt, getT } from "@/i18n/server";
 // Creación automática de reglas de correo con IA. Cada usuario usa su propio proveedor
 // (Claude u OpenAI), su clave y su modelo (ver Ajustes → IA); nunca una clave del servidor.
 
-export const DAILY_LIMIT = 40;
 const MAX_ATTEMPTS = 2;
 const OPENAI_API = "https://api.openai.com/v1";
 
@@ -122,13 +121,11 @@ function validate(p: Proposal, email: EmailInput): string[] {
   return problems;
 }
 
-async function takeDailyQuota() {
-  // getSetting/setSetting son por usuario: el límite diario es de cada cuenta
+/** Cuenta las reglas pedidas hoy (sólo informativo: sin límite, el uso lo paga cada usuario con su clave). */
+async function recordUsage() {
+  // getSetting/setSetting son por usuario
   const key = `ai.usage.${new Date().toISOString().slice(0, 10)}`;
-  const used = Number((await getSetting(key)) ?? 0);
-  if (used >= DAILY_LIMIT) return false;
-  await setSetting(key, String(used + 1));
-  return true;
+  await setSetting(key, String(Number((await getSetting(key)) ?? 0) + 1));
 }
 
 // Las llamadas se hacen una a la vez (cola global de la instancia). Cada tarea se ejecuta
@@ -287,7 +284,7 @@ export function createRuleWithAi(messageId: number, opts: { force?: boolean } = 
       .update(emailMessages)
       .set({ aiAttemptAt: new Date() })
       .where(and(eq(emailMessages.id, msg.id), eq(emailMessages.userId, userId)));
-    if (!(await takeDailyQuota())) return { ruleId: null, message: fmt(t.dailyLimit, { n: DAILY_LIMIT }) };
+    await recordUsage();
 
     const email: EmailInput = { from: msg.fromAddress ?? "", subject: msg.subject ?? "", body: msg.body ?? "" };
     const [cats, accs] = await Promise.all([
