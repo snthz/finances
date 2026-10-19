@@ -4,8 +4,8 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { accounts, categories, emailMessages, emailRules } from "@/db/schema";
-import { AI_PROVIDER_NAMES, DEFAULT_AI_MODELS, SUGGESTED_AI_MODELS } from "@/lib/ai-models";
+import { accounts, aiUsage, categories, emailMessages, emailRules } from "@/db/schema";
+import { AI_PROVIDER_NAMES, aiCallCost, DEFAULT_AI_MODELS, SUGGESTED_AI_MODELS, type AiCallTokens } from "@/lib/ai-models";
 import { uid } from "@/lib/context";
 import { extract, isValidRegex, ruleMatches, type EmailInput, type RuleLike } from "@/lib/email/parser";
 import { appSettings, deleteSetting, encrypt, getSetting, isAiProvider, KEYS, reloadSettings, runAsUser, setSetting, type AiProvider } from "@/lib/settings";
@@ -130,6 +130,25 @@ async function recordUsage() {
   await setSetting(key, String(Number((await getSetting(key)) ?? 0) + 1));
 }
 
+/** Guarda los tokens y el costo de una llamada al proveedor (para el gráfico de costos en Ajustes → IA). */
+async function recordAiCall(provider: AiProvider, model: string, tokens: AiCallTokens, emailMessageId: number) {
+  const cost = aiCallCost(model, tokens);
+  await db
+    .insert(aiUsage)
+    .values({
+      userId: uid(),
+      provider,
+      model,
+      inputTokens: tokens.input,
+      cacheReadTokens: tokens.cacheRead,
+      cacheWriteTokens: tokens.cacheWrite,
+      outputTokens: tokens.output,
+      costUsd: cost === null ? null : cost.toFixed(6),
+      emailMessageId,
+    })
+    .catch((err) => console.error("[ai-usage]", err));
+}
+
 // Las llamadas se hacen una a la vez (cola global de la instancia). Cada tarea se ejecuta
 // explícitamente como el usuario que la encoló, sin depender del contexto de la promesa anterior.
 const g = globalThis as unknown as { __financeAiQueue?: Promise<unknown> };
@@ -190,7 +209,10 @@ type Turn = { error: string } | { refused: true } | { refused: false; proposal: 
 /** Conversación de varios turnos: ask() pide la regla y feedback() agrega la corrección. */
 type Conversation = { ask(): Promise<Turn>; feedback(text: string): void };
 
-function anthropicConversation(apiKey: string, model: string, first: string): Conversation {
+/** Recibe el modelo que respondió y los tokens de cada llamada que se cobró. */
+type OnUsage = (model: string, tokens: AiCallTokens) => Promise<void>;
+
+function anthropicConversation(apiKey: string, model: string, first: string, onUsage: OnUsage): Conversation {
   const client = new Anthropic({ apiKey });
   const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: first }];
   return {
@@ -212,6 +234,13 @@ function anthropicConversation(apiKey: string, model: string, first: string): Co
         if (f) return { error: failureMessage("anthropic", f) };
         throw err;
       }
+      const u = response.usage;
+      await onUsage(response.model ?? model, {
+        input: u.input_tokens ?? 0,
+        cacheRead: u.cache_read_input_tokens ?? 0,
+        cacheWrite: u.cache_creation_input_tokens ?? 0,
+        output: u.output_tokens ?? 0,
+      });
       if (response.stop_reason === "refusal") return { refused: true };
       // Se conserva la respuesta completa del asistente para el turno de corrección
       messages.push({ role: "assistant", content: response.content });
@@ -230,11 +259,13 @@ const OPENAI_FORMAT = (() => {
 })();
 
 type OpenAiResponse = {
+  model?: string;
   output?: { type: string; content?: { type: string; text?: string; refusal?: string }[] }[];
+  usage?: { input_tokens?: number; output_tokens?: number; input_tokens_details?: { cached_tokens?: number } };
 };
 
 /** OpenAI Responses API con fetch (no hay SDK de OpenAI instalado). */
-function openaiConversation(apiKey: string, model: string, first: string): Conversation {
+function openaiConversation(apiKey: string, model: string, first: string, onUsage: OnUsage): Conversation {
   const input: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: first }];
   return {
     async ask() {
@@ -247,6 +278,14 @@ function openaiConversation(apiKey: string, model: string, first: string): Conve
       if (!res) return { error: failureMessage("openai", {}) };
       if (!res.ok) return { error: failureMessage("openai", httpFailure(res.status)) };
       const data = (await res.json()) as OpenAiResponse;
+      // En OpenAI los tokens en caché están incluidos en input_tokens
+      const cached = data.usage?.input_tokens_details?.cached_tokens ?? 0;
+      await onUsage(data.model ?? model, {
+        input: Math.max(0, (data.usage?.input_tokens ?? 0) - cached),
+        cacheRead: cached,
+        cacheWrite: 0,
+        output: data.usage?.output_tokens ?? 0,
+      });
       const content = (data.output ?? []).filter((o) => o.type === "message").flatMap((o) => o.content ?? []);
       if (content.some((c) => c.type === "refusal")) return { refused: true };
       const text = content
@@ -301,7 +340,10 @@ export function createRuleWithAi(messageId: number, opts: { force?: boolean } = 
     };
     const first = `Contexto de la app:\n${JSON.stringify(context, null, 1)}\n\n<correo>\nRemitente: ${email.from}\nAsunto: ${email.subject}\n\n${email.body}\n</correo>\n\nDiseña la regla para este tipo de correo.`;
     const model = ai.model || DEFAULT_AI_MODELS[ai.provider];
-    const chat = ai.provider === "anthropic" ? anthropicConversation(ai.apiKey, model, first) : openaiConversation(ai.apiKey, model, first);
+    const provider = ai.provider;
+    const onUsage: OnUsage = (used, tokens) => recordAiCall(provider, used, tokens, msg.id);
+    const chat =
+      provider === "anthropic" ? anthropicConversation(ai.apiKey, model, first, onUsage) : openaiConversation(ai.apiKey, model, first, onUsage);
 
     let proposal: Proposal | null = null;
     let problems: string[] = [];

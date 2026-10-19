@@ -35,15 +35,17 @@ import { initScope, requireAuth } from "@/lib/auth";
 import { catalogFor, COMMON_TIMEZONES } from "@/lib/currency-catalog";
 import type { SyncResult } from "@/lib/email/sync";
 import { getWatcherStatus } from "@/lib/email/sync";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatYmd, money } from "@/lib/format";
+import { aiCostSummary } from "@/lib/ai-usage";
+import { AiCostChart } from "@/components/charts";
 import { extractAddress } from "@/lib/email/gmail-filter";
 import { GmailFilterGenerator } from "@/components/gmail-filter-generator";
 import { aiConfigured } from "@/lib/ai";
-import { AI_PRICING_URLS, AI_PROVIDER_NAMES, aiModelPrice, SUGGESTED_AI_MODELS, type AiProviderId } from "@/lib/ai-models";
+import { AI_PRICING_URLS, AI_PROVIDER_NAMES, aiModelPrice, fmtUsd, SUGGESTED_AI_MODELS, type AiProviderId } from "@/lib/ai-models";
 import { uid } from "@/lib/context";
-import { appSettings, defaultImapHost, getSetting } from "@/lib/settings";
+import { appSettings, currencyRate, defaultImapHost, getSetting } from "@/lib/settings";
 import { LOCALES, LOCALE_NAMES } from "@/i18n/config";
-import { fmt, getT } from "@/i18n/server";
+import { fmt, getT, plural } from "@/i18n/server";
 
 export async function generateMetadata() {
   await initScope();
@@ -586,6 +588,86 @@ const AI_KEY_LINKS: Record<AiProviderId, { href: string; label: string }> = {
 // Precio por millón de tokens: "0.05", "1.25", "20"
 const usd = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
+/** Lo que ha costado la IA: cifras, costo diario de los últimos 30 días y desglose por modelo. */
+async function AiCostsSection() {
+  const tc = getT().settings.page.ai.costs;
+  const c = await aiCostSummary();
+  const usdRate = currencyRate("USD");
+  const base = appSettings().baseCurrency;
+  // Equivalente en la moneda principal ("≈ L 1.24") si no es el dólar
+  const inBase = (usdAmount: number) => (base !== "USD" && usdRate ? `≈ ${money(usdAmount * usdRate)}` : null);
+  const tokens = (n: number) => new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+  const tiles = [
+    { label: tc.thisMonth, value: fmtUsd(c.month), sub: inBase(c.month) },
+    { label: tc.total, value: fmtUsd(c.cost), sub: plural(c.calls, tc.calls) },
+    { label: tc.perRule, value: c.perRule === null ? "—" : fmtUsd(c.perRule), sub: plural(c.rules, tc.rules) },
+  ];
+
+  return (
+    <Section title={tc.title} description={tc.description}>
+      {c.calls === 0 ? (
+        <Card>
+          <p className="text-sm text-ink-2">{tc.empty}</p>
+          {c.untracked > 0 && <p className="mt-2 text-xs text-muted">{fmt(tc.untracked, { n: c.untracked })}</p>}
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            {tiles.map((k) => (
+              <div key={k.label} className="card min-w-0 p-4">
+                <div className="text-xs font-medium text-muted">{k.label}</div>
+                <div className="tabular mt-1 truncate text-lg font-semibold tracking-tight sm:text-xl">{k.value}</div>
+                {k.sub && <div className="mt-0.5 truncate text-[11px] text-muted">{k.sub}</div>}
+              </div>
+            ))}
+          </div>
+
+          <Card title={tc.last30}>
+            <AiCostChart
+              data={c.series.map((d) => ({ ...d, label: formatYmd(d.day, { day: "numeric", month: "short" }) }))}
+              labels={{ cost: tc.cost, calls: tc.callsLabel, tokens: tc.tokens, aria: tc.chartAria }}
+            />
+          </Card>
+
+          <Card title={tc.byModel} padded={false}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-y border-line text-left text-xs text-muted">
+                    <th className="px-5 py-2 font-medium">{tc.model}</th>
+                    <th className="px-3 py-2 text-right font-medium">{tc.callsLabel}</th>
+                    <th className="px-3 py-2 text-right font-medium">{tc.input}</th>
+                    <th className="px-3 py-2 text-right font-medium">{tc.output}</th>
+                    <th className="px-5 py-2 text-right font-medium">{tc.cost}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {c.byModel.map((m) => (
+                    <tr key={m.model}>
+                      <td className="max-w-40 truncate px-5 py-2.5 font-mono text-xs">{m.model}</td>
+                      <td className="tabular px-3 py-2.5 text-right text-ink-2">{m.calls}</td>
+                      <td className="tabular px-3 py-2.5 text-right text-ink-2">{tokens(m.input)}</td>
+                      <td className="tabular px-3 py-2.5 text-right text-ink-2">{tokens(m.output)}</td>
+                      <td className="tabular px-5 py-2.5 text-right font-medium">{m.cost === null ? <span className="text-muted">{tc.noPrice}</span> : fmtUsd(m.cost)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {(c.unpriced > 0 || c.untracked > 0) && (
+            <div className="space-y-1 px-1 text-xs text-muted">
+              {c.unpriced > 0 && <p>{fmt(tc.unpriced, { n: c.unpriced })}</p>}
+              {c.untracked > 0 && <p>{fmt(tc.untracked, { n: c.untracked })}</p>}
+            </div>
+          )}
+        </>
+      )}
+    </Section>
+  );
+}
+
 async function AiTab({ sp }: { sp: Awaited<SP> }) {
   // Sólo datos no secretos: proveedor, últimos 4 de la clave y modelos (la clave nunca llega al navegador)
   const { provider, keyHint, model, models } = appSettings().ai;
@@ -682,6 +764,8 @@ async function AiTab({ sp }: { sp: Awaited<SP> }) {
           </div>
         </div>
       </Section>
+
+      <AiCostsSection />
 
       <Section title={tr.autoTitle} description={tr.autoDescription}>
         <Card>

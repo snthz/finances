@@ -99,6 +99,13 @@
       "when": 1792443728729,
       "tag": "0013_debit_card_link",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792444603800,
+      "tag": "0014_ai_usage",
+      "breakpoints": true
     }
   ]
 }

@@ -331,6 +331,31 @@ export const notifications = pgTable(
   ],
 );
 
+/**
+ * Cada llamada al proveedor de IA (crear reglas): tokens y costo en USD según el precio del modelo
+ * al momento de la llamada (null si no se conoce el precio).
+ */
+export const aiUsage = pgTable(
+  "ai_usage",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    // Entrada sin caché, entrada leída de caché, entrada escrita en caché y salida (incluye razonamiento)
+    inputTokens: integer("input_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    emailMessageId: integer("email_message_id").references(() => emailMessages.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ai_usage_user_created_idx").on(t.userId, t.createdAt)],
+);
+
 /** Ajustes globales de la instancia (ej. el secreto de sesiones). */
 export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
@@ -367,3 +392,4 @@ export type PaymentKind = (typeof paymentKind.enumValues)[number];
 export type TxType = (typeof txType.enumValues)[number];
 export type AccountType = (typeof accountType.enumValues)[number];
 export type UserSetting = typeof userSettings.$inferSelect;
+export type AiUsage = typeof aiUsage.$inferSelect;

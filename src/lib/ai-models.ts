@@ -49,3 +49,23 @@ const AI_MODEL_PRICES: Record<string, { input: number; output: number }> = {
 export function aiModelPrice(model: string) {
   return AI_MODEL_PRICES[model] ?? AI_MODEL_PRICES[model.replace(/-(\d{4}-\d{2}-\d{2}|\d{8})$/, "")] ?? null;
 }
+
+/** Tokens de una llamada. `input` es la entrada sin caché; la leída y la escrita en caché van aparte. */
+export type AiCallTokens = { input: number; cacheRead: number; cacheWrite: number; output: number };
+
+/**
+ * Costo en USD de una llamada con el precio de referencia del modelo (null si no se conoce).
+ * Caché: leer cuesta 0.1× la entrada y escribir 1.25× (tarifas de caché de 5 minutos).
+ */
+export function aiCallCost(model: string, tokens: AiCallTokens) {
+  const price = aiModelPrice(model);
+  if (!price) return null;
+  const input = tokens.input + tokens.cacheRead * 0.1 + tokens.cacheWrite * 1.25;
+  return (input * price.input + tokens.output * price.output) / 1_000_000;
+}
+
+/** "US$ 0.0123": más decimales para montos de centavos (el costo de una regla suele ser < 1 centavo). */
+export function fmtUsd(n: number) {
+  const digits = n === 0 ? 2 : n < 0.01 ? 4 : n < 1 ? 3 : 2;
+  return `US$ ${n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+}

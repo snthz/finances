@@ -3,6 +3,7 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipContentProps } from "recharts";
 import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { fmt, useT } from "@/i18n/client";
+import { fmtUsd } from "@/lib/ai-models";
 
 function fmtMoney(n: number, symbol: string) {
   return `${n < 0 ? "-" : ""}${symbol} ${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
@@ -94,6 +95,41 @@ export function DailyChart({ data, symbol, monthName }: {
           <YAxis {...axis} width={44} tickFormatter={(v: number) => fmtCompact(v)} />
           <Tooltip content={Content} cursor={{ fill: "var(--surface-2)" }} />
           <Bar dataKey="total" fill="var(--series-1)" radius={[4, 4, 0, 0]} maxBarSize={24} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+
+/** Costo diario de la IA (USD), una barra por día. */
+export function AiCostChart({ data, labels }: {
+  data: { day: string; label: string; cost: number; calls: number; tokens: number }[];
+  labels: { cost: string; calls: string; tokens: string; aria: string };
+}) {
+  const Content = ({ active, payload }: TooltipContentProps<ValueType, NameType>) => {
+    if (!active || !payload?.length) return null;
+    const p = payload[0].payload as (typeof data)[number];
+    return (
+      <TooltipBox
+        title={p.label}
+        rows={[
+          { label: labels.cost, value: fmtUsd(p.cost), color: "var(--series-1)" },
+          { label: labels.calls, value: String(p.calls), color: "transparent" },
+          { label: labels.tokens, value: fmtCompact(p.tokens), color: "transparent" },
+        ]}
+      />
+    );
+  };
+  return (
+    <div className="h-48" role="img" aria-label={labels.aria}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} barCategoryGap={2} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+          <CartesianGrid vertical={false} stroke="var(--line)" />
+          <XAxis dataKey="label" {...axis} interval="preserveStartEnd" minTickGap={24} />
+          <YAxis {...axis} width={52} tickFormatter={(v: number) => `$${v < 0.1 ? v.toFixed(3) : v.toFixed(2)}`} />
+          <Tooltip content={Content} cursor={{ fill: "var(--surface-2)" }} />
+          <Bar dataKey="cost" fill="var(--series-1)" radius={[4, 4, 0, 0]} maxBarSize={24} />
         </BarChart>
       </ResponsiveContainer>
     </div>
