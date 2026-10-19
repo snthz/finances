@@ -1,0 +1,3 @@
+ALTER TABLE "scheduled_payments" ADD COLUMN "match_keywords" text[] DEFAULT '{}'::text[] NOT NULL;--> statement-breakpoint
+ALTER TABLE "transactions" ADD COLUMN "scheduled_payment_id" integer;--> statement-breakpoint
+ALTER TABLE "transactions" ADD CONSTRAINT "transactions_scheduled_payment_id_scheduled_payments_id_fk" FOREIGN KEY ("scheduled_payment_id") REFERENCES "public"."scheduled_payments"("id") ON DELETE set null ON UPDATE no action;
