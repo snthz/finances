@@ -36,16 +36,14 @@ El workflow [.github/workflows/ci.yml](.github/workflows/ci.yml) corre en cada p
 
 1. **Verify:** `bun run typecheck` y `bun test`.
 2. **Build:** construye la imagen Docker. En `main` la publica en GHCR como `:latest` y `:sha-xxxxxxx`.
-3. **Deploy** (sólo `main`): llama a la API de Dokploy para redesplegar y espera a que `/api/health` responda con el commit nuevo.
+3. **Deploy** (sólo `main`): hace POST al webhook de Dokploy y espera a que `/api/health` responda con el commit nuevo.
 
 Configura en GitHub → *Settings → Secrets and variables → Actions*:
 
 | Tipo | Nombre | Valor |
 | --- | --- | --- |
-| Secret | `DOKPLOY_URL` | URL de tu panel de Dokploy, ej. `https://dokploy.tu-dominio.com` |
-| Secret | `DOKPLOY_API_KEY` | Dokploy → *Settings → Profile → API/CLI* → generar token |
-| Secret | `DOKPLOY_APPLICATION_ID` | El id de la aplicación (aparece en la URL de la app en Dokploy) |
-| Variable | `APP_URL` | URL pública de la app, ej. `https://finances.tu-dominio.com` (para verificar el deploy) |
+| Secret | `DOKPLOY_WEBHOOK_URL` | Dokploy → tu app → *Deployments* → **Webhook URL** (con *Autodeploy* activado en *General*) |
+| Variable | `APP_URL` | URL pública de la app, ej. `https://finances.tu-dominio.com` (opcional, para verificar el deploy) |
 
 El job de deploy usa el entorno `production` de GitHub: ahí puedes exigir aprobación manual antes de desplegar.
 

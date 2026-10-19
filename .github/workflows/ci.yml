@@ -80,19 +80,16 @@ jobs:
     steps:
       - name: Trigger Dokploy deployment
         env:
-          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
-          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
-          DOKPLOY_APPLICATION_ID: ${{ secrets.DOKPLOY_APPLICATION_ID }}
+          DOKPLOY_WEBHOOK_URL: ${{ secrets.DOKPLOY_WEBHOOK_URL }}
         run: |
-          if [ -z "$DOKPLOY_URL" ] || [ -z "$DOKPLOY_API_KEY" ] || [ -z "$DOKPLOY_APPLICATION_ID" ]; then
-            echo "::error::Missing DOKPLOY_URL, DOKPLOY_API_KEY or DOKPLOY_APPLICATION_ID secrets"
+          if [ -z "$DOKPLOY_WEBHOOK_URL" ]; then
+            echo "::error::Missing DOKPLOY_WEBHOOK_URL secret (Dokploy → app → Deployments → Webhook URL)"
             exit 1
           fi
-          curl --fail-with-body -sS -X POST "${DOKPLOY_URL%/}/api/application.deploy" \
-            -H "accept: application/json" \
+          # La URL del webhook es secreta: no se imprime
+          curl --fail-with-body -sS -X POST "$DOKPLOY_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -H "x-api-key: ${DOKPLOY_API_KEY}" \
-            -d "{\"applicationId\":\"${DOKPLOY_APPLICATION_ID}\"}"
+            -d '{}'
       - name: Wait for the new version to be live
         if: vars.APP_URL != ''
         env:
