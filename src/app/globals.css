@@ -177,3 +177,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     filter: invert(1);
   }
 }
+
+/* App instalada (PWA): sin barras de scroll visibles, como una app nativa; el desplazamiento sigue igual */
+@media (display-mode: standalone) {
+  * {
+    scrollbar-width: none;
+  }
+  *::-webkit-scrollbar {
+    display: none;
+  }
+}
