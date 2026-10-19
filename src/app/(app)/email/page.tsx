@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { ChevronRight, Inbox as InboxIcon, Mail, Plus, RotateCw, Sparkles, Wand2 } from "lucide-react";
+import { ChevronRight, CircleAlert, Inbox as InboxIcon, Mail, Plus, Sparkles, Wand2 } from "lucide-react";
 import Link from "next/link";
-import { aiRuleFromMessage, deleteRule, retryMessage, runReprocess } from "@/actions/email";
+import { deleteRule, runReprocess } from "@/actions/email";
 import { ActionForm, SubmitButton } from "@/components/action-form";
+import { EmailMessageActions } from "@/components/email-message-actions";
 import { EmailSyncControls } from "@/components/email-sync";
 import { Sheet } from "@/components/form/sheet";
 import { RuleEditor, type RuleInitial } from "@/components/rule-editor";
@@ -12,6 +13,7 @@ import { emailAccounts, emailMessages, emailRules, transactions } from "@/db/sch
 import { initScope, requireAuth } from "@/lib/auth";
 import { uid } from "@/lib/context";
 import { aiConfigured } from "@/lib/ai";
+import { extract } from "@/lib/email/parser";
 import { getWatcherStatus } from "@/lib/email/sync";
 import { formatDateTime, money, toLocalYmd } from "@/lib/format";
 import { fmt, getT } from "@/i18n/server";
@@ -32,6 +34,17 @@ const STATUS = {
 export async function generateMetadata() {
   await initScope();
   return { title: getT().email.metaTitle };
+}
+
+/** Cuerpo para leer: sin las URLs de imágenes ("[https://…/logo.jpg]") ni espacios de más. */
+function readableBody(body: string) {
+  return body
+    .replace(/\[(?:https?:\/\/|cid:)[^\]\s]*\]/g, " ")
+    .replace(/https?:\/\/\S+\.(?:png|jpe?g|gif|webp)\S*/gi, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function escapeRegex(s: string) {
@@ -150,6 +163,14 @@ async function Inbox({ sp, counts }: { sp: Awaited<SP>; counts: Record<keyof typ
     .orderBy(desc(emailMessages.receivedAt))
     .limit(100);
   const viewing = sp.view ? rows.find((r) => r.m.id === Number(sp.view)) : undefined;
+  // Lo que la regla asignada logra leer del correo, para ver qué falta cuando falla
+  const viewingRule = viewing?.m.ruleId
+    ? await db.query.emailRules.findFirst({ where: and(eq(emailRules.id, viewing.m.ruleId), eq(emailRules.userId, uid())) })
+    : undefined;
+  const detected =
+    viewing && viewingRule && !viewingRule.ignore
+      ? extract(viewingRule, { from: viewing.m.fromAddress ?? "", subject: viewing.m.subject ?? "", body: viewing.m.body ?? "" }, appSettings().currencies)
+      : null;
   const listHref = `/email${status ? `?status=${status}` : ""}`;
 
   return (
@@ -217,7 +238,15 @@ async function Inbox({ sp, counts }: { sp: Awaited<SP>; counts: Record<keyof typ
               {viewing.accountLabel && <Badge tone="outline">{viewing.accountLabel}</Badge>}
               {viewing.ruleName && <span className="text-muted">{fmt(t.email.inbox.rule, { name: viewing.ruleName })}</span>}
             </div>
-            {viewing.m.error && <p className="text-sm text-bad">{viewing.m.error}</p>}
+            {viewing.m.error && (
+              <div className="flex gap-3 rounded-2xl border border-bad/25 bg-bad/5 p-4">
+                <CircleAlert className="mt-0.5 size-4 shrink-0 text-bad" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-bad">{viewing.m.error}</p>
+                  {!viewing.txId && <p className="mt-0.5 text-xs leading-relaxed text-ink-2">{t.email.inbox.failedHint}</p>}
+                </div>
+              </div>
+            )}
             {viewing.txId && (
               <Link href={`/transactions?month=all&edit=${viewing.txId}`} className="card flex items-center justify-between gap-3 p-4 shadow-none">
                 <span className="text-sm text-ink-2">{fmt(t.email.inbox.txCreated, { type: viewing.txType ? t.common.txTypes[viewing.txType] : t.email.inbox.transaction })}</span>
@@ -226,29 +255,36 @@ async function Inbox({ sp, counts }: { sp: Awaited<SP>; counts: Record<keyof typ
                 </span>
               </Link>
             )}
-            <pre className="max-h-[50dvh] overflow-auto rounded-2xl bg-surface-2 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">{viewing.m.body}</pre>
+            {detected && !viewing.txId && (
+              <section>
+                <h3 className="mb-2 px-1 text-xs font-medium tracking-wide text-muted uppercase">{t.email.inbox.detected}</h3>
+                <dl className="card grid grid-cols-2 gap-px overflow-hidden bg-line shadow-none sm:grid-cols-4">
+                  {[
+                    { label: t.email.inbox.fields.amount, value: detected.amount === null ? null : detected.currency ? money(detected.amount, detected.currency) : String(detected.amount), required: true },
+                    { label: t.email.inbox.fields.merchant, value: detected.merchant },
+                    { label: t.email.inbox.fields.card, value: detected.identifier && `•••• ${detected.identifier}` },
+                    { label: t.email.inbox.fields.date, value: detected.date && `${detected.date.ymd}${detected.date.time ? ` ${detected.date.time}` : ""}` },
+                  ].map((f) => (
+                    <div key={f.label} className="min-w-0 bg-surface px-4 py-3">
+                      <dt className="text-xs text-muted">{f.label}</dt>
+                      <dd className={`mt-0.5 truncate text-sm font-medium ${f.value ? "tabular" : f.required ? "text-bad" : "text-muted"}`}>{f.value || t.email.inbox.missing}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            )}
+            <section>
+              <h3 className="mb-2 px-1 text-xs font-medium tracking-wide text-muted uppercase">{t.email.inbox.content}</h3>
+              <div className="max-h-[45dvh] overflow-auto rounded-2xl bg-surface-2 p-4 text-sm leading-relaxed whitespace-pre-wrap text-ink-2">{readableBody(viewing.m.body ?? "")}</div>
+              <details className="group mt-2">
+                <summary className="flex cursor-pointer list-none items-center gap-1 px-1 text-xs font-medium text-muted hover:text-ink">
+                  <ChevronRight className="size-3.5 transition group-open:rotate-90" /> {t.email.inbox.showOriginal}
+                </summary>
+                <pre className="mt-2 max-h-[40dvh] overflow-auto rounded-2xl bg-surface-2 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">{viewing.m.body}</pre>
+              </details>
+            </section>
             {!viewing.txId && (
-              <div className="space-y-2">
-                {(viewing.m.status === "error" || viewing.m.status === "unmatched") && (
-                  <ActionForm action={retryMessage}>
-                    <input type="hidden" name="id" value={viewing.m.id} />
-                    <SubmitButton className="btn-ghost h-11 w-full" pendingText={t.email.inbox.retrying}>
-                      <RotateCw className="size-4" /> {t.email.inbox.retry}
-                    </SubmitButton>
-                  </ActionForm>
-                )}
-                {aiConfigured() && (
-                  <ActionForm action={aiRuleFromMessage}>
-                    <input type="hidden" name="id" value={viewing.m.id} />
-                    <SubmitButton className="btn-primary h-11 w-full" pendingText={t.email.inbox.aiAnalyzing}>
-                      <Sparkles className="size-4" /> {t.email.inbox.aiCreate}
-                    </SubmitButton>
-                  </ActionForm>
-                )}
-                <Link href={`/email?tab=rules&new=1&from=${viewing.m.id}`} className={`${aiConfigured() ? "btn-ghost" : "btn-primary"} h-11 w-full`}>
-                  <Wand2 className="size-4" /> {t.email.inbox.manualCreate}
-                </Link>
-              </div>
+              <EmailMessageActions id={viewing.m.id} canRetry={viewing.m.status === "error" || viewing.m.status === "unmatched"} aiEnabled={aiConfigured()} />
             )}
           </div>
         </Sheet>
