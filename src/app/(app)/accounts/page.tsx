@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { Banknote, CreditCard, Landmark, PiggyBank, Plus, Smartphone, Wallet, WalletCards } from "lucide-react";
 import Link from "next/link";
 import { deleteAccount, saveAccount, toggleArchiveAccount } from "@/actions/accounts";
@@ -13,6 +12,7 @@ import { db } from "@/db";
 import { initScope, requireAuth } from "@/lib/auth";
 import { uid } from "@/lib/context";
 import { money } from "@/lib/format";
+import { unassignedIdentifiers } from "@/lib/account-linking";
 import { accountBalances } from "@/lib/queries";
 import { appSettings } from "@/lib/settings";
 import { fmt, getT } from "@/i18n/server";
@@ -97,6 +97,8 @@ export default async function AccountsPage({ searchParams }: { searchParams: SP 
   const t = getT();
   const ta = t.accounts;
   const sp = await searchParams;
+  // Primero se asocian los movimientos cuyos dígitos ya tienen cuenta, para que los saldos los incluyan
+  const orphans = await unassignedIdentifiers();
   const balances = await accountBalances();
   const { baseCurrency, currencies } = appSettings();
   const editId = Number(sp.edit);
@@ -105,13 +107,6 @@ export default async function AccountsPage({ searchParams }: { searchParams: SP 
       ? await db.query.accounts.findFirst({ where: (a, { and, eq }) => and(eq(a.id, editId), eq(a.userId, uid())) })
       : null;
   const showForm = Boolean(editing || sp.new);
-
-  // Últimos 4 detectados en correos que todavía no pertenecen a ninguna cuenta
-  const orphans = await db.execute<{ ident: string; n: number }>(sql`
-    select detected_identifier as ident, count(*)::int as n from transactions
-    where user_id = ${uid()} and account_id is null and detected_identifier is not null
-    group by 1 order by 2 desc
-  `);
 
   const active = balances.filter((b) => !b.archived);
   const archived = balances.filter((b) => b.archived);
