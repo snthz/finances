@@ -23,12 +23,31 @@ App personal (PWA) para registrar gastos e ingresos, importarlos automáticament
 ## Despliegue en Dokploy
 
 1. **Base de datos:** en Dokploy crea (o usa) un servicio **PostgreSQL** y copia su *Internal Connection URL*.
-2. **Aplicación:** crea una *Application* desde tu repo con **Build Type: Dockerfile**, puerto **3000**.
+2. **Aplicación:** crea una *Application* con proveedor **Docker** e imagen `ghcr.io/<tu-usuario>/<tu-repo>:latest` (la construye GitHub Actions, ver abajo), puerto **3000**. Si el paquete de GHCR es privado, agrega el registro `ghcr.io` en Dokploy con un token con permiso `read:packages`.
 3. **Variable de entorno:** sólo `DATABASE_URL`, con la URL interna del Postgres. El resto es opcional (ver [.env.example](.env.example)).
 4. **Dominio** con HTTPS (Let's Encrypt) en la pestaña *Domains*. Hace falta para instalar la PWA y para la cookie de sesión segura.
 5. Despliega y abre tu dominio: aparecerá el asistente para crear tu cuenta. Las migraciones se aplican solas al arrancar.
 
 > Corre **una sola réplica**: el watcher de correo vive dentro del proceso.
+
+### CI/CD con GitHub Actions
+
+El workflow [.github/workflows/ci.yml](.github/workflows/ci.yml) corre en cada push y pull request:
+
+1. **Verify:** `bun run typecheck` y `bun test`.
+2. **Build:** construye la imagen Docker. En `main` la publica en GHCR como `:latest` y `:sha-xxxxxxx`.
+3. **Deploy** (sólo `main`): llama a la API de Dokploy para redesplegar y espera a que `/api/health` responda con el commit nuevo.
+
+Configura en GitHub → *Settings → Secrets and variables → Actions*:
+
+| Tipo | Nombre | Valor |
+| --- | --- | --- |
+| Secret | `DOKPLOY_URL` | URL de tu panel de Dokploy, ej. `https://dokploy.tu-dominio.com` |
+| Secret | `DOKPLOY_API_KEY` | Dokploy → *Settings → Profile → API/CLI* → generar token |
+| Secret | `DOKPLOY_APPLICATION_ID` | El id de la aplicación (aparece en la URL de la app en Dokploy) |
+| Variable | `APP_URL` | URL pública de la app, ej. `https://finances.tu-dominio.com` (para verificar el deploy) |
+
+El job de deploy usa el entorno `production` de GitHub: ahí puedes exigir aprobación manual antes de desplegar.
 
 ### Correos (uno o varios Gmail)
 
