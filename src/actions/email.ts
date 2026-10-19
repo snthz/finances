@@ -10,7 +10,7 @@ import { requireAuth } from "@/lib/auth";
 import { uid } from "@/lib/context";
 import { ownedAccountId, ownedCategoryId } from "@/lib/queries";
 import { extract, isValidRegex, matchAccount, normalizeText, ruleMatches } from "@/lib/email/parser";
-import { processMessage, reprocessPending, syncAccount, syncAll, type SyncRange } from "@/lib/email/sync";
+import { processMessage, reprocessPending } from "@/lib/email/sync";
 import { aiConfigured, createRuleWithAi, setAiAutoRules } from "@/lib/ai";
 import { appSettings, reloadSettings } from "@/lib/settings";
 import { fmt, getT } from "@/i18n/server";
@@ -89,42 +89,6 @@ export async function deleteRule(formData: FormData) {
   if (Number.isInteger(id)) await db.delete(emailRules).where(and(eq(emailRules.id, id), eq(emailRules.userId, uid())));
   revalidatePath("/email");
   redirect("/email?tab=rules");
-}
-
-const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const syncSchema = z.object({
-  accountId: z.number().int().positive().optional(),
-  from: ymd.optional(),
-  to: ymd.optional(),
-});
-
-/** Sincroniza todas las cuentas o una, opcionalmente sólo un rango de fechas. Se llama desde el cliente con un aviso de carga. */
-export async function syncEmail(input: { accountId?: number; from?: string; to?: string } = {}): Promise<FormState> {
-  await requireAuth();
-  const t = getT();
-  const parsed = syncSchema.safeParse(input);
-  if (!parsed.success) return { error: t.common.errors.invalidData };
-  const { accountId, from, to } = parsed.data;
-  let range: SyncRange | undefined;
-  if (from || to) {
-    if (!from || !to || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) return { error: t.email.errors.rangeInvalid };
-    if (from > to) return { error: t.email.errors.rangeOrder };
-    range = { from, to };
-  }
-  const accs = appSettings().emailAccounts;
-  if (accountId && !accs.some((a) => a.id === accountId)) return { error: t.common.errors.invalidData };
-  const results = accountId
-    ? [{ ...(await syncAccount(accountId, range)), accountId, label: accs.find((a) => a.id === accountId)!.label }]
-    : await syncAll(range);
-  revalidatePath("/", "layout");
-  if (!results.length) return { error: t.email.errors.noAccounts };
-  // Con rango, una sincronización en curso sí impide importar ese periodo
-  const failed = results.filter((r) => !r.ok && (!r.busy || range));
-  const sum = (k: "fetched" | "created" | "unmatched") => results.reduce((a, r) => a + r[k], 0);
-  const summary = fmt(t.email.results.syncSummary, { fetched: sum("fetched"), created: sum("created"), unmatched: sum("unmatched") });
-  if (failed.length)
-    return { error: fmt(t.email.errors.syncFailed, { summary, details: failed.map((f) => `${f.label}: ${f.message}`).join("; ") }) };
-  return { ok: true, message: summary };
 }
 
 /** Vuelve a aplicar las reglas a un correo que falló o quedó sin regla. */

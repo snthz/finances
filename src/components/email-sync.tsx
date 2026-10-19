@@ -4,8 +4,7 @@ import { CalendarRange, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { syncEmail } from "@/actions/email";
-import { saveEmailAccount, syncEmailAccount } from "@/actions/settings";
+import { saveEmailAccount } from "@/actions/settings";
 import type { FormState } from "@/actions/types";
 import { fmt, useLocale, useT } from "@/i18n/client";
 import { INTL_LOCALES } from "@/i18n/config";
@@ -14,16 +13,24 @@ import { Field } from "./form/controls";
 import { Modal } from "./form/modal";
 import { Select } from "./form/select";
 
-/** Corre una sincronización con un aviso de carga que al terminar se convierte en el resultado. */
-async function withSyncToast(run: () => Promise<FormState>, loading: string, fallbackError: string) {
+type SyncInput = { accountId?: number; from?: string; to?: string };
+
+/**
+ * Sincroniza con un aviso de carga que al terminar se convierte en el resultado.
+ * Va por fetch y no por server action: las acciones comparten cola con la navegación
+ * y una sincronización larga impediría cerrar el sheet o cambiar de página.
+ */
+async function syncWithToast(input: SyncInput, loading: string, fallbackError: string, refresh: () => void) {
   const id = toast.loading(loading);
   try {
-    const r = await run();
-    if (r?.error) toast.error(r.error, { id });
+    const res = await fetch("/api/email/sync", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+    const r = (await res.json()) as FormState;
+    if (!res.ok || r?.error) toast.error(r?.error ?? fallbackError, { id });
     else toast.success(r?.message ?? "", { id });
   } catch {
     toast.error(fallbackError, { id });
   }
+  refresh();
 }
 
 /**
@@ -45,7 +52,7 @@ export function EmailAccountForm({ closeHref, className, children }: { closeHref
     }
     router.push(closeHref, { scroll: false });
     const id = (state.data as { syncId?: number } | undefined)?.syncId;
-    if (id) void withSyncToast(() => syncEmailAccount(id), t.settings.page.email.sheet.syncing, t.common.errors.invalidData);
+    if (id) void syncWithToast({ accountId: id }, t.settings.page.email.sheet.syncing, t.common.errors.invalidData, () => router.refresh());
     else if (state.message) toast.success(state.message);
   }, [state, closeHref, router, t]);
 
@@ -59,6 +66,7 @@ export function EmailAccountForm({ closeHref, className, children }: { closeHref
 /** Botón "Sincronizar ahora" de una cuenta (sin cerrar el sheet). */
 export function SyncAccountButton({ id, label }: { id: number; label: string }) {
   const t = useT();
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   return (
     <button
@@ -69,7 +77,7 @@ export function SyncAccountButton({ id, label }: { id: number; label: string }) 
       className="btn-subtle"
       onClick={async () => {
         setBusy(true);
-        await withSyncToast(() => syncEmailAccount(id), t.settings.page.email.sheet.syncing, t.common.errors.invalidData);
+        await syncWithToast({ accountId: id }, t.settings.page.email.sheet.syncing, t.common.errors.invalidData, () => router.refresh());
         setBusy(false);
       }}
     >
@@ -86,6 +94,7 @@ export function EmailSyncControls({ accounts, today }: { accounts: { id: number;
   const t = useT();
   const tr = t.email.range;
   const locale = useLocale();
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [accountId, setAccountId] = useState("");
@@ -101,9 +110,9 @@ export function EmailSyncControls({ accounts, today }: { accounts: { id: number;
   const day = (ymd: string) =>
     new Intl.DateTimeFormat(INTL_LOCALES[locale], { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(Date.parse(`${ymd}T12:00:00Z`));
 
-  async function run(input: Parameters<typeof syncEmail>[0], loading: string) {
+  async function run(input: SyncInput, loading: string) {
     setBusy(true);
-    await withSyncToast(() => syncEmail(input), loading, t.common.errors.invalidData);
+    await syncWithToast(input, loading, t.common.errors.invalidData, () => router.refresh());
     setBusy(false);
   }
 

@@ -13,7 +13,7 @@ import { removeAiKey, setAiModel, storeAiKey } from "@/lib/ai";
 import { hashPassword, requireAuth, setLangCookie, verifyPassword } from "@/lib/auth";
 import { uid } from "@/lib/context";
 import { catalogFor, initialAliases } from "@/lib/currency-catalog";
-import { restartWatcher, stopWatchers, syncAccount, waitForSync, type SyncResult } from "@/lib/email/sync";
+import { restartWatcher, stopWatchers } from "@/lib/email/sync";
 import { changeBaseCurrency, refreshRates } from "@/lib/rates";
 import { seedUser } from "@/lib/seed";
 import { appSettings, defaultImapHost, encrypt, isAiProvider, KEYS, reloadSettings, setSetting } from "@/lib/settings";
@@ -288,30 +288,6 @@ export async function saveSyncInterval(_prev: FormState, formData: FormData): Pr
   await setSetting(KEYS.syncInterval, String(n));
   await reloadSettings();
   return done(t.settings.actions.saved);
-}
-
-/** Sincroniza una cuenta y espera el resultado (se llama desde el cliente con un aviso de carga). */
-export async function syncEmailAccount(id: number): Promise<FormState> {
-  await requireAuth();
-  if (!Number.isInteger(id) || !ownsEmailAccount(id)) return { error: getT().common.errors.invalidData };
-  let r = await syncAccount(id);
-  if (r.busy) {
-    // El watcher ya estaba sincronizando (p. ej. al conectar): se espera su resultado
-    await waitForSync(id);
-    const [row] = await db
-      .select({ lastResult: emailAccounts.lastResult })
-      .from(emailAccounts)
-      .where(and(eq(emailAccounts.id, id), eq(emailAccounts.userId, uid())));
-    r = (row?.lastResult as SyncResult | null) ?? r;
-  }
-  revalidatePath("/", "layout");
-  const t = getT();
-  if (r.busy) return { ok: true, message: t.settings.actions.syncInBackground };
-  if (!r.ok) return { error: fmt(t.settings.errors.connectionFailed, { error: r.message ?? "" }) };
-  return {
-    ok: true,
-    message: `${plural(r.fetched, t.settings.actions.syncEmails)} · ${plural(r.created, t.settings.actions.syncTransactions)}`,
-  };
 }
 
 // ---------- Zona de peligro ----------
