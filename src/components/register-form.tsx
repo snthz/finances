@@ -52,7 +52,7 @@ export function RegisterForm() {
         </span>
       </label>
 
-      <SubmitButton pendingText={t.pending} className="btn-primary h-11 w-full">
+      <SubmitButton pendingText={t.pending} className="btn-primary mt-2 h-11 w-full">
         {t.submit}
       </SubmitButton>
     </ActionForm>

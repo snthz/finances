@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AuthShell, OrDivider } from "@/components/auth-shell";
-import { Logo } from "@/components/brand";
+import { AuthHeading, AuthSplit, OrDivider } from "@/components/auth-shell";
 import { GoogleButton } from "@/components/google-button";
 import { RegisterForm } from "@/components/register-form";
-import { getT } from "@/i18n/server";
+import { getLocale, getT } from "@/i18n/server";
 import { initScope } from "@/lib/auth";
 
 export async function generateMetadata() {
@@ -18,14 +17,10 @@ export default async function RegisterPage() {
   const all = getT();
   const t = all.auth.register;
   return (
-    <AuthShell legal={all.legal}>
-      <div className="mb-6">
-        <Logo size="lg" />
-        <h1 className="mt-5 text-xl font-semibold tracking-tight">{t.title}</h1>
-        <p className="mt-1 text-sm text-muted">{t.subtitle}</p>
-      </div>
+    <AuthSplit legal={all.legal} panel={all.auth.panel} locale={getLocale()}>
+      <AuthHeading title={t.title} subtitle={t.subtitle} />
       <GoogleButton label={t.google} />
-      <p className="mt-2.5 text-center text-[11px] leading-relaxed text-muted">
+      <p className="mt-3 text-xs leading-relaxed text-muted">
         {t.googleAgree}{" "}
         <Link href="/terms" className="underline underline-offset-2 hover:text-ink">
           {t.terms}
@@ -38,12 +33,12 @@ export default async function RegisterPage() {
       </p>
       <OrDivider label={t.or} />
       <RegisterForm />
-      <p className="mt-6 text-center text-sm text-muted">
+      <p className="mt-8 text-sm text-ink-2">
         {t.haveAccount}{" "}
-        <Link href="/login" className="font-medium text-ink underline-offset-2 hover:underline">
+        <Link href="/login" className="font-medium text-ink underline underline-offset-4 decoration-line-strong transition hover:decoration-ink">
           {t.signIn}
         </Link>
       </p>
-    </AuthShell>
+    </AuthSplit>
   );
 }

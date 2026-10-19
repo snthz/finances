@@ -60,9 +60,9 @@ export function PublicHeader({ children }: { children?: React.ReactNode }) {
 }
 
 /** Enlaces a Términos, Privacidad y contacto (pie de login, registro y páginas legales). */
-export function LegalLinks({ t, className = "" }: { t: LegalT; className?: string }) {
+export function LegalLinks({ t, align = "center", className = "" }: { t: LegalT; align?: "center" | "start"; className?: string }) {
   return (
-    <nav className={`flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-muted ${className}`}>
+    <nav className={`flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted ${align === "start" ? "justify-start" : "justify-center"} ${className}`}>
       <Link href="/terms" className="transition hover:text-ink">
         {t.terms}
       </Link>

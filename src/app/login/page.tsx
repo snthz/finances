@@ -2,11 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { login } from "@/actions/auth";
 import { ActionForm, SubmitButton } from "@/components/action-form";
-import { AuthError, AuthShell, OrDivider } from "@/components/auth-shell";
-import { Logo } from "@/components/brand";
+import { AuthError, AuthHeading, AuthSplit, OrDivider } from "@/components/auth-shell";
 import { PasswordInput } from "@/components/form/password-input";
 import { GoogleButton } from "@/components/google-button";
-import { getT } from "@/i18n/server";
+import { getLocale, getT } from "@/i18n/server";
 import { initScope } from "@/lib/auth";
 
 export async function generateMetadata() {
@@ -32,12 +31,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const message = code ? (errors[code] ?? e.google) : null;
 
   return (
-    <AuthShell legal={all.legal}>
-      <div className="mb-6">
-        <Logo size="lg" />
-        <h1 className="mt-5 text-xl font-semibold tracking-tight">{t.title}</h1>
-        <p className="mt-1 text-sm text-muted">{t.subtitle}</p>
-      </div>
+    <AuthSplit legal={all.legal} panel={all.auth.panel} locale={getLocale()}>
+      <AuthHeading title={t.title} subtitle={t.subtitle} />
       <AuthError message={message} />
       <GoogleButton label={t.google} />
       <OrDivider label={t.or} />
@@ -50,16 +45,16 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <label htmlFor="password" className="label">{t.password}</label>
           <PasswordInput id="password" name="password" autoComplete="current-password" required />
         </div>
-        <SubmitButton pendingText={t.pending} className="btn-primary h-11 w-full">
+        <SubmitButton pendingText={t.pending} className="btn-primary mt-2 h-11 w-full">
           {t.submit}
         </SubmitButton>
       </ActionForm>
-      <p className="mt-6 text-center text-sm text-muted">
+      <p className="mt-8 text-sm text-ink-2">
         {t.noAccount}{" "}
-        <Link href="/register" className="font-medium text-ink underline-offset-2 hover:underline">
+        <Link href="/register" className="font-medium text-ink underline underline-offset-4 decoration-line-strong transition hover:decoration-ink">
           {t.createAccount}
         </Link>
       </p>
-    </AuthShell>
+    </AuthSplit>
   );
 }

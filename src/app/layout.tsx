@@ -28,6 +28,8 @@ export async function generateMetadata(): Promise<Metadata> {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // iOS zooms into inputs with font-size < 16px on focus; capping the scale prevents it
+  maximumScale: 1,
   viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f7f7f7" },
