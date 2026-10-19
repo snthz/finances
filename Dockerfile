@@ -15,9 +15,12 @@ RUN npx next build
 
 FROM base AS runner
 WORKDIR /app
+# Commit desplegado (lo pasa el CI); /api/health lo devuelve para confirmar el deploy
+ARG GIT_SHA=dev
 ENV NODE_ENV=production \
     PORT=3000 \
-    HOSTNAME=0.0.0.0
+    HOSTNAME=0.0.0.0 \
+    APP_VERSION=$GIT_SHA
 RUN addgroup -S -g 1001 nodejs && adduser -S -u 1001 -G nodejs nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
