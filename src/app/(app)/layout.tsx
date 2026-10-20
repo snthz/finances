@@ -3,7 +3,7 @@ import Link from "next/link";
 import { logout } from "@/actions/auth";
 import { Avatar } from "@/components/avatar";
 import { Logo } from "@/components/brand";
-import { Fab, SettingsLink, SideNav, TabBar } from "@/components/nav";
+import { Fab, SettingsLink, SideNav, SideSettingsLink, TabBar } from "@/components/nav";
 import { NotificationBell } from "@/components/notification-bell";
 import { getT } from "@/i18n/server";
 import { requireAuth } from "@/lib/auth";
@@ -16,24 +16,32 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="md:flex">
       {/* Escritorio */}
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-line px-3 py-6 md:flex">
-        <div className="mb-8 flex items-center justify-between gap-2 pr-1 pl-3">
-          <Link href="/">
+      <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-line bg-surface md:flex">
+        <div className="flex h-16 items-center justify-between gap-2 px-5">
+          <Link href="/" className="rounded-lg">
             <Logo />
           </Link>
           <NotificationBell initial={notes} />
         </div>
-        <SideNav />
-        <div className="mt-auto flex items-center gap-1 rounded-xl px-1 py-1">
-          <Link href="/settings?tab=cuenta" className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2 py-1.5 transition hover:bg-surface-2">
-            <Avatar name={user.name} avatar={user.avatar} size={32} />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">{user.name}</span>
-          </Link>
-          <form action={logout}>
-            <button aria-label={t.logout} title={t.logout} className="btn-icon size-8">
-              <LogOut className="size-4" />
-            </button>
-          </form>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-4">
+          <SideNav />
+        </div>
+        <div className="border-t border-line px-3 py-3">
+          <SideSettingsLink />
+          <div className="mt-2 flex items-center gap-1 rounded-xl border border-line bg-bg/60 p-1.5">
+            <Link href="/settings?tab=cuenta" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1.5 py-1 transition hover:bg-surface-2">
+              <Avatar name={user.name} avatar={user.avatar} size={32} />
+              <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                <span className="truncate text-[13px] font-medium text-ink">{user.name}</span>
+                <span className="truncate text-[11.5px] text-muted">{user.email}</span>
+              </span>
+            </Link>
+            <form action={logout}>
+              <button aria-label={t.logout} title={t.logout} className="btn-icon size-8 rounded-lg">
+                <LogOut className="size-4" />
+              </button>
+            </form>
+          </div>
         </div>
       </aside>
 

@@ -19,6 +19,10 @@ const en = {
     newTransaction: "New transaction",
     newShort: "New",
     logout: "Sign out",
+    sections: {
+      main: "Main",
+      manage: "Manage",
+    },
   },
   actions: {
     save: "Save",
@@ -77,6 +81,10 @@ const es: typeof en = {
     newTransaction: "Nuevo movimiento",
     newShort: "Nuevo",
     logout: "Cerrar sesión",
+    sections: {
+      main: "Principal",
+      manage: "Gestión",
+    },
   },
   actions: {
     save: "Guardar",

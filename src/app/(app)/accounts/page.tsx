@@ -36,7 +36,7 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
 type Balance = Awaited<ReturnType<typeof accountBalances>>[number];
 
 /** Tarjeta de una cuenta. Las tarjetas de crédito muestran lo que se debe en cada moneda de su saldo. */
-function AccountTile({ a }: { a: Balance }) {
+function AccountTile({ a, stacked = false }: { a: Balance; stacked?: boolean }) {
   const t = getT();
   const ta = t.accounts;
   const { baseCurrency } = appSettings();
@@ -49,7 +49,7 @@ function AccountTile({ a }: { a: Balance }) {
       scroll={false}
       className={`group relative flex min-h-44 flex-col overflow-hidden rounded-2xl p-5 transition active:scale-[0.99] ${
         isCard ? "bg-ink text-bg shadow-pop" : "card hover:border-line-strong"
-      }`}
+      } ${stacked ? "z-10 flex-1" : ""}`}
     >
       {isCard && <div aria-hidden className="pointer-events-none absolute -top-16 -right-16 size-48 rounded-full bg-bg/5" />}
       <div className="flex items-center justify-between gap-2">
@@ -64,7 +64,7 @@ function AccountTile({ a }: { a: Balance }) {
       </div>
       {/* Tarjeta de débito vinculada: de qué cuenta sale. Cuenta: qué tarjetas descuentan de ella */}
       {a.linkedTo && <div className="mt-1 truncate text-xs text-bg/60">{fmt(ta.drawsFrom, { name: a.linkedTo.name })}</div>}
-      {a.linkedCards.length > 0 && (
+      {a.linkedCards.length > 0 && !stacked && (
         <div className={`mt-1 truncate text-xs ${isCard ? "text-bg/60" : "text-muted"}`}>
           {fmt(ta.cardsLinked, { cards: a.linkedCards.map((c) => (c.identifiers[0] ? `•••• ${c.identifiers[0]}` : c.name)).join(", ") })}
         </div>
@@ -99,6 +99,34 @@ function AccountTile({ a }: { a: Balance }) {
   );
 }
 
+/** Cuenta con sus tarjetas de débito apiladas detrás, estilo billetera: de cada tarjeta asoma sólo el borde superior. */
+function AccountStack({ a, cards }: { a: Balance; cards: Balance[] }) {
+  if (cards.length === 0) return <AccountTile a={a} />;
+  const t = getT();
+  return (
+    <div className="flex flex-col">
+      {cards.map((c, i) => (
+        <Link
+          key={c.id}
+          href={`/accounts?edit=${c.id}`}
+          scroll={false}
+          style={{ zIndex: i }}
+          className="relative -mb-5 flex h-[3.75rem] items-start justify-between gap-3 rounded-t-2xl border-t border-bg/10 bg-ink px-5 pt-3 text-bg shadow-pop transition hover:-translate-y-1"
+        >
+          <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-bg/70">
+            <WalletCards className="size-4 shrink-0" />
+            <span className="truncate">{c.name}</span>
+          </span>
+          <span className="shrink-0 font-mono text-xs tracking-widest text-bg/60">
+            {c.identifiers.length ? c.identifiers.map((d) => `•••• ${d}`).join("  ") : t.common.accountTypes.debit_card}
+          </span>
+        </Link>
+      ))}
+      <AccountTile a={a} stacked />
+    </div>
+  );
+}
+
 export default async function AccountsPage({ searchParams }: { searchParams: SP }) {
   await requireAuth();
   const t = getT();
@@ -125,12 +153,11 @@ export default async function AccountsPage({ searchParams }: { searchParams: SP 
 
   // Secciones: tarjetas de crédito, cuentas y débito, efectivo y otros
   const credit = active.filter((a) => a.type === "credit_card");
-  // Cada cuenta seguida de sus tarjetas de débito vinculadas
-  const bankLike = active.filter((a) => a.type === "bank" || a.type === "debit_card");
-  const banks = bankLike
-    .filter((a) => !a.linkedTo || !bankLike.some((b) => b.id === a.linkedTo!.id))
-    .flatMap((a) => [a, ...bankLike.filter((c) => c.linkedTo?.id === a.id)]);
-  const rest = active.filter((a) => !credit.includes(a) && !banks.includes(a));
+  // Las tarjetas de débito vinculadas se apilan detrás de su cuenta en lugar de ocupar su propio lugar
+  const cardsOf = (a: Balance) => active.filter((c) => c.linkedTo?.id === a.id);
+  const loose = active.filter((a) => !a.linkedTo || !active.some((b) => b.id === a.linkedTo!.id));
+  const banks = loose.filter((a) => a.type === "bank" || a.type === "debit_card");
+  const rest = loose.filter((a) => !credit.includes(a) && !banks.includes(a));
   // Deuda total de las tarjetas por moneda ("Debes L 8,000.00 + $ 45.00")
   const owed = new Map<string, number>();
   for (const a of credit) for (const p of [{ currency: a.currency, balance: a.balance }, ...a.others]) if (p.balance < 0) owed.set(p.currency, (owed.get(p.currency) ?? 0) - p.balance);
@@ -194,7 +221,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: SP 
               </div>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {g.items.map((a) => (
-                  <AccountTile key={a.id} a={a} />
+                  <AccountStack key={a.id} a={a} cards={cardsOf(a)} />
                 ))}
               </div>
             </section>
