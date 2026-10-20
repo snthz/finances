@@ -164,6 +164,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
         </Card>
 
         <Card
+          className="flex flex-col"
           title={t.budget.title}
           subtitle={fmt(t.budget.subtitle, { month: monthLabel(month), currency: baseCurrency })}
           actions={<Link href="/budget" className="text-xs font-medium text-ink-2 hover:text-ink">{t.budget.view}</Link>}
@@ -173,11 +174,30 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
               <Link className="font-medium text-ink underline" href="/budget?edit=1">{t.budget.create}</Link>
             </Empty>
           ) : (
-            <div className="space-y-4">
+            <div className="flex flex-1 flex-col gap-4">
               {monthPlan?.monthlyLimit && (() => {
                 const lim = Number(monthPlan.monthlyLimit);
                 const spentAll = monthResult?.spent ?? 0;
                 const over = spentAll > lim;
+                const left = lim - spentAll;
+                // Por día y proyección sólo tienen sentido en el mes en curso
+                const isCurrent = month === currentMonth();
+                const daysLeft = days - elapsed + 1;
+                const projected = elapsed > 0 ? (spentAll / elapsed) * days : 0;
+                const tiles = [
+                  { label: over ? t.budget.over : t.budget.remaining, value: money(Math.abs(left)), bad: over, note: fmt(t.budget.used, { pct: ((spentAll / lim) * 100).toFixed(0) }) },
+                  ...(isCurrent
+                    ? [
+                        { label: t.budget.perDay, value: money(Math.max(0, left) / daysLeft), bad: false, note: plural(daysLeft, t.budget.daysLeft) },
+                        {
+                          label: t.budget.projection,
+                          value: money(projected),
+                          bad: projected > lim,
+                          note: projected > lim ? fmt(t.budget.projectionOver, { amount: money(projected - lim) }) : t.budget.projectionOk,
+                        },
+                      ]
+                    : []),
+                ];
                 return (
                   <div>
                     <div className="mb-1.5 flex items-baseline justify-between gap-2">
@@ -187,9 +207,14 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
                     <div className="h-2 overflow-hidden rounded-full bg-surface-2">
                       <div className="h-full rounded-full" style={{ width: `${Math.min(100, (spentAll / lim) * 100)}%`, background: over ? "var(--bad)" : "var(--ink)" }} />
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-                      <span className="flex items-center gap-1"><Flame className="size-3.5" /> {fmt(t.budget.budgetStreak, { n: budgetStreak.current })}</span>
-                      <span className="flex items-center gap-1"><PiggyBank className="size-3.5" /> {fmt(t.budget.savingsStreak, { n: savingsStreak.current })}</span>
+                    <div className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}>
+                      {tiles.map((x) => (
+                        <div key={x.label} className="min-w-0 rounded-xl bg-surface-2 px-2.5 py-2.5 sm:px-3">
+                          <div className="truncate text-[11px] text-muted">{x.label}</div>
+                          <div className={`mt-0.5 text-[13px] font-semibold break-words sm:text-sm ${x.bad ? "text-bad" : ""}`}>{x.value}</div>
+                          <div className="mt-0.5 truncate text-[11px] text-muted">{x.note}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 );
@@ -208,6 +233,12 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
                   </div>
                 );
               })}
+              {monthPlan?.monthlyLimit && (
+                <div className="mt-auto flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-3 text-xs text-muted">
+                  <span className="flex items-center gap-1"><Flame className="size-3.5" /> {fmt(t.budget.budgetStreak, { n: budgetStreak.current })}</span>
+                  <span className="flex items-center gap-1"><PiggyBank className="size-3.5" /> {fmt(t.budget.savingsStreak, { n: savingsStreak.current })}</span>
+                </div>
+              )}
             </div>
           )}
         </Card>
