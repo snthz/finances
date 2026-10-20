@@ -6,12 +6,17 @@ import { accounts, categories, currencies, transactions, type TxType } from "@/d
 import { getT } from "@/i18n/server";
 import { uid } from "./context";
 import { cardCurrencyList, bucketize } from "./card-currencies";
+import type { DateRange } from "./period";
 import { appSettings, currencyRate } from "./settings";
 
 const tz = () => appSettings().timezone;
 const t = transactions;
 
 const inMonth = (ym: string) => sql`to_char(${t.date} AT TIME ZONE ${tz()}, 'YYYY-MM') = ${ym}`;
+/** Un mes "YYYY-MM" o un rango de días locales (ambos incluidos). */
+export type Period = string | DateRange;
+const inPeriod = (p: Period) =>
+  typeof p === "string" ? inMonth(p) : sql`(${t.date} AT TIME ZONE ${tz()})::date between ${p.from}::date and ${p.to}::date`;
 /** Filtro obligatorio: sólo movimientos del usuario actual. */
 const mine = () => eq(t.userId, uid());
 // Joins defensivos: la cuenta/categoría unida también debe ser del usuario
@@ -52,30 +57,31 @@ export async function getCurrencies() {
 }
 
 /** Monedas usadas en el mes que no tienen tasa (quedan fuera del consolidado). */
-export async function missingRates(ym?: string) {
+export async function missingRates(p?: Period) {
   const rows = await db.execute<{ currency: string; n: number }>(sql`
-    select t.currency, count(*)::int as n from transactions t
-    left join currencies c on c.code = t.currency and c.user_id = t.user_id
-    where t.user_id = ${uid()} and c.rate is null ${ym ? sql`and to_char(t.date at time zone ${tz()}, 'YYYY-MM') = ${ym}` : sql``}
+    select transactions.currency, count(*)::int as n from transactions
+    left join currencies c on c.code = transactions.currency and c.user_id = transactions.user_id
+    where transactions.user_id = ${uid()} and c.rate is null ${p ? sql`and ${inPeriod(p)}` : sql``}
     group by 1
   `);
   return rows.map((r) => ({ currency: r.currency, count: num(r.n) }));
 }
 
-export async function monthSummary(ym: string, scope: Scope) {
+export async function monthSummary(p: Period, scope: Scope) {
   const a = amt(scope);
   const [row] = await db
     .select({
       income: sql<string>`coalesce(sum(${a}) filter (where ${t.type} = 'income'), 0)`,
       expense: sql<string>`coalesce(sum(${a}) filter (where ${t.type} = 'expense'), 0)`,
       count: sql<number>`count(*) filter (where ${t.type} <> 'transfer')`,
+      expenseCount: sql<number>`count(*) filter (where ${t.type} = 'expense')`,
     })
     .from(t)
-    .where(and(mine(), inMonth(ym), scopeWhere(scope)));
-  return { income: num(row?.income), expense: num(row?.expense), count: num(row?.count) };
+    .where(and(mine(), inPeriod(p), scopeWhere(scope)));
+  return { income: num(row?.income), expense: num(row?.expense), count: num(row?.count), expenseCount: num(row?.expenseCount) };
 }
 
-export async function spendingByCategory(ym: string, scope: Scope) {
+export async function spendingByCategory(p: Period, scope: Scope) {
   const a = amt(scope);
   const rows = await db
     .select({
@@ -88,7 +94,7 @@ export async function spendingByCategory(ym: string, scope: Scope) {
     })
     .from(t)
     .leftJoin(categories, joinCategory())
-    .where(and(mine(), inMonth(ym), scopeWhere(scope), eq(t.type, "expense")))
+    .where(and(mine(), inPeriod(p), scopeWhere(scope), eq(t.type, "expense")))
     .groupBy(categories.id)
     .orderBy(desc(sql`sum(${a})`));
   return rows.map((r) => ({ ...r, total: num(r.total), budget: r.budget === null ? null : num(r.budget) })).filter((r) => r.total > 0);
@@ -108,17 +114,49 @@ export async function budgetsStatus(ym: string) {
   }));
 }
 
-export async function dailySpending(ym: string, scope: Scope) {
+/** Ingresos y gastos por día ("YYYY-MM-DD") o por mes ("YYYY-MM") dentro del periodo. */
+export async function periodSeries(p: Period, scope: Scope, unit: "day" | "month") {
+  const a = amt(scope);
+  const key = sql<string>`to_char(${t.date} AT TIME ZONE ${tz()}, ${sql.raw(unit === "day" ? "'YYYY-MM-DD'" : "'YYYY-MM'")})`;
+  const rows = await db
+    .select({
+      key,
+      income: sql<string>`coalesce(sum(${a}) filter (where ${t.type} = 'income'), 0)`,
+      expense: sql<string>`coalesce(sum(${a}) filter (where ${t.type} = 'expense'), 0)`,
+    })
+    .from(t)
+    .where(and(mine(), inPeriod(p), scopeWhere(scope)))
+    .groupBy(sql`1`);
+  return rows.map((r) => ({ key: r.key, income: num(r.income), expense: num(r.expense) }));
+}
+
+/** Gasto total por día de la semana ISO (1 = lunes … 7 = domingo). */
+export async function spendingByWeekday(p: Period, scope: Scope) {
   const a = amt(scope);
   const rows = await db
     .select({
-      day: sql<number>`extract(day from ${t.date} AT TIME ZONE ${tz()})::int`,
+      dow: sql<number>`extract(isodow from ${t.date} AT TIME ZONE ${tz()})::int`,
       total: sql<string>`sum(${a})`,
+      count: sql<number>`count(*)`,
     })
     .from(t)
-    .where(and(mine(), inMonth(ym), scopeWhere(scope), eq(t.type, "expense")))
+    .where(and(mine(), inPeriod(p), scopeWhere(scope), eq(t.type, "expense")))
     .groupBy(sql`1`);
-  return rows.map((r) => ({ day: num(r.day), total: num(r.total) }));
+  return rows.map((r) => ({ dow: num(r.dow), total: num(r.total), count: num(r.count) }));
+}
+
+/** Movimientos del periodo (sin transferencias): los gastos más grandes, o todos por fecha. */
+export async function periodTransactions(p: Period, scope: Scope, opts: { order: "amount" | "date"; limit: number }) {
+  const a = amt(scope);
+  const rows = await db
+    .select({ tx: t, value: sql<string>`${a}`, categoryName: categories.name, categoryIcon: categories.icon, accountName: accounts.name })
+    .from(t)
+    .leftJoin(categories, joinCategory())
+    .leftJoin(accounts, joinAccount())
+    .where(and(mine(), inPeriod(p), scopeWhere(scope), opts.order === "amount" ? eq(t.type, "expense") : sql`${t.type} <> 'transfer'`))
+    .orderBy(...(opts.order === "amount" ? [desc(sql`${a}`), desc(t.date)] : [desc(t.date), desc(t.id)]))
+    .limit(opts.limit);
+  return rows.map((r) => ({ ...r, value: num(r.value) }));
 }
 
 export async function monthlyTrend(fromYm: string, toYm: string, scope: Scope) {
@@ -137,7 +175,7 @@ export async function monthlyTrend(fromYm: string, toYm: string, scope: Scope) {
 }
 
 /** Gastos por cuenta/tarjeta; si no hay cuenta asociada agrupa por últimos 4 detectados. */
-export async function spendingByAccount(ym: string, scope: Scope) {
+export async function spendingByAccount(p: Period, scope: Scope) {
   const a = amt(scope);
   const label = sql<string>`coalesce(${accounts.name}, case when ${t.detectedIdentifier} is not null then '•••• ' || ${t.detectedIdentifier} else 'Sin cuenta' end)`;
   const rows = await db
@@ -151,14 +189,14 @@ export async function spendingByAccount(ym: string, scope: Scope) {
     })
     .from(t)
     .leftJoin(accounts, joinAccount())
-    .where(and(mine(), inMonth(ym), scopeWhere(scope), eq(t.type, "expense")))
+    .where(and(mine(), inPeriod(p), scopeWhere(scope), eq(t.type, "expense")))
     .groupBy(accounts.id, label)
     .orderBy(desc(sql`sum(${a})`));
   return rows.map((r) => ({ ...r, total: num(r.total), count: num(r.count) }));
 }
 
-/** Desglose del gasto del mes por moneda original (y su equivalente en base). */
-export async function spendingByCurrency(ym: string) {
+/** Desglose del gasto del periodo por moneda original (y su equivalente en base). */
+export async function spendingByCurrency(p: Period) {
   const rows = await db
     .select({
       currency: t.currency,
@@ -167,20 +205,20 @@ export async function spendingByCurrency(ym: string) {
       count: sql<number>`count(*)`,
     })
     .from(t)
-    .where(and(mine(), inMonth(ym), eq(t.type, "expense")))
+    .where(and(mine(), inPeriod(p), eq(t.type, "expense")))
     .groupBy(t.currency)
     .orderBy(desc(sql`sum(${t.amount})`));
   return rows.map((r) => ({ currency: r.currency, total: num(r.total), converted: r.converted === null ? null : num(r.converted), count: num(r.count) }));
 }
 
-export async function topMerchants(ym: string, scope: Scope, limit = 8) {
+export async function topMerchants(p: Period, scope: Scope, limit = 8) {
   const a = amt(scope);
   // Sin texto queda null (agrupado) y se etiqueta en JS, así el GROUP BY no depende de un parámetro
   const name = sql<string | null>`coalesce(nullif(trim(${t.merchant}), ''), nullif(trim(${t.description}), ''))`;
   const rows = await db
     .select({ name, total: sql<string>`sum(${a})`, count: sql<number>`count(*)` })
     .from(t)
-    .where(and(mine(), inMonth(ym), scopeWhere(scope), eq(t.type, "expense")))
+    .where(and(mine(), inPeriod(p), scopeWhere(scope), eq(t.type, "expense")))
     .groupBy(name)
     .orderBy(desc(sql`sum(${a})`))
     .limit(limit);

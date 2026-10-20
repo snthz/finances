@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { DailyChart, TrendChart } from "@/components/charts";
 import { CurrencyTabs, MonthNav } from "@/components/month-nav";
-import { ArrowLeftRight, CalendarClock, Flame, PiggyBank } from "lucide-react";
+import { StatTiles } from "@/components/stat-tiles";
+import { ArrowLeftRight, CalendarClock, ChartPie, Flame, PiggyBank } from "lucide-react";
 import { PaymentDueRow } from "@/components/payment-row";
 import { paymentReminders } from "@/lib/payments";
 import { Badge, Card, Empty, HBar, IconBubble, Notice, PageHeader } from "@/components/ui";
@@ -9,42 +9,11 @@ import { requireAuth } from "@/lib/auth";
 import { budgetHistory, planFor, streak } from "@/lib/budget";
 import { appSettings } from "@/lib/settings";
 import { currentMonth, daysInMonth, formatDate, money, monthLabel, shiftMonth } from "@/lib/format";
-import {
-  accountBalances,
-  budgetsStatus,
-  dailySpending,
-  getCurrencies,
-  listTransactions,
-  missingRates,
-  monthlyTrend,
-  monthSummary,
-  spendingByAccount,
-  spendingByCategory,
-  spendingByCurrency,
-  topMerchants,
-  type Scope,
-} from "@/lib/queries";
-import { currencySymbol } from "@/lib/format";
+import { accountBalances, budgetsStatus, getCurrencies, listTransactions, missingRates, monthSummary, spendingByCategory, type Scope } from "@/lib/queries";
 import { CategoryIcon } from "@/components/category-icon";
 import { fmt, getLocale, getT, plural } from "@/i18n/server";
 
 type SP = Promise<{ month?: string; currency?: string }>;
-
-function Delta({ current, previous, upIsGood, inverted }: { current: number; previous: number; upIsGood: boolean; inverted?: boolean }) {
-  const t = getT().dashboard;
-  const muted = inverted ? "text-bg/60" : "text-muted";
-  if (!previous) return <span className={`text-xs ${muted}`}>{t.delta.noPrevious}</span>;
-  const pct = ((current - previous) / previous) * 100;
-  const good = pct === 0 ? null : (pct > 0) === upIsGood;
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs ${muted}`}>
-      <span className={`rounded-md px-1.5 py-0.5 font-medium ${inverted ? "bg-bg/10 text-bg" : good === false ? "bg-bad/10 text-bad" : "bg-surface-2 text-ink"}`}>
-        {pct > 0 ? "↑" : pct < 0 ? "↓" : "="} {Math.abs(pct).toFixed(0)}%
-      </span>
-      {t.delta.vsPrevious}
-    </span>
-  );
-}
 
 export default async function Dashboard({ searchParams }: { searchParams: SP }) {
   await requireAuth();
@@ -60,18 +29,13 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
   const currency = scope.currency ?? baseCurrency;
   const prevMonth = shiftMonth(month, -1);
 
-  const [summary, prev, byCategory, daily, trend, byAccount, merchants, balances, budgets, recent, byCurrency, missing] = await Promise.all([
+  const [summary, prev, byCategory, balances, budgets, recent, missing] = await Promise.all([
     monthSummary(month, scope),
     monthSummary(prevMonth, scope),
     spendingByCategory(month, scope),
-    dailySpending(month, scope),
-    monthlyTrend(shiftMonth(month, -11), month, scope),
-    spendingByAccount(month, scope),
-    topMerchants(month, scope),
     accountBalances(),
     budgetsStatus(month),
     listTransactions({ month, currency: scope.currency }),
-    spendingByCurrency(month),
     scope.currency ? Promise.resolve([]) : missingRates(month),
   ]);
 
@@ -81,25 +45,14 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
   const budgetStreak = streak(history.months, "budgetMet");
   const savingsStreak = streak(history.months, "savingsMet");
 
-  const net = summary.income - summary.expense;
-  const savingsRate = summary.income > 0 ? (net / summary.income) * 100 : null;
   const days = daysInMonth(month);
   const elapsed = month === currentMonth() ? Number(new Date().toLocaleString("en-US", { timeZone: timezone, day: "numeric" })) : days;
   const dailyAvg = elapsed > 0 ? summary.expense / elapsed : 0;
 
-  const dailyData = Array.from({ length: days }, (_, i) => ({ day: i + 1, total: daily.find((d) => d.day === i + 1)?.total ?? 0 }));
-  const trendData = Array.from({ length: 12 }, (_, i) => {
-    const ym = shiftMonth(month, i - 11);
-    const r = trend.find((x) => x.ym === ym);
-    return { label: monthLabel(ym, "short"), income: r?.income ?? 0, expense: r?.expense ?? 0 };
-  });
   const maxCat = byCategory[0]?.total ?? 0;
-  const maxAcc = byAccount[0]?.total ?? 0;
-  const maxMerchant = merchants[0]?.total ?? 0;
-  const peakDay = dailyData.reduce((a, b) => (b.total > a.total ? b : a), { day: 0, total: 0 });
   const uncategorized = byCategory.find((c) => c.id === null);
   const params = { month, currency: scope.currency };
-  const symbol = currencySymbol(currency);
+  const statsHref = `/stats?${new URLSearchParams({ period: "month", date: `${month}-01`, ...(scope.currency ? { currency: scope.currency } : {}) })}`;
 
   return (
     <>
@@ -156,52 +109,34 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
       )}
 
       {/* Cifras principales */}
-      <div className="mb-4 grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-5">
-        <div className="col-span-2 min-w-0 rounded-2xl bg-ink p-5 text-bg shadow-pop">
-          <div className="text-xs font-medium text-bg/60">{t.stats.monthSpending}</div>
-          <div className="tabular mt-1 text-4xl font-semibold tracking-tight break-words md:text-5xl">{money(summary.expense, currency)}</div>
-          <div className="mt-3">
-            <Delta current={summary.expense} previous={prev.expense} upIsGood={false} inverted />
-          </div>
-        </div>
-        <div className="card min-w-0 p-4 md:p-5">
-          <div className="text-xs font-medium text-muted">{t.stats.income}</div>
-          <div className="tabular mt-1 text-lg font-semibold tracking-tight break-words sm:text-xl xl:text-2xl">{money(summary.income, currency)}</div>
-          <div className="mt-2">
-            <Delta current={summary.income} previous={prev.income} upIsGood />
-          </div>
-        </div>
-        <div className="card min-w-0 p-4 md:p-5">
-          <div className="text-xs font-medium text-muted">{t.stats.net}</div>
-          <div className={`tabular mt-1 text-lg font-semibold tracking-tight break-words sm:text-xl xl:text-2xl ${net < 0 ? "text-bad" : ""}`}>{money(net, currency)}</div>
-          <div className="mt-2 text-xs text-muted">
-            {savingsRate === null ? t.stats.noIncome : fmt(t.stats.savingsRate, { pct: savingsRate.toFixed(0) })}
-          </div>
-        </div>
-        <div className="card col-span-2 min-w-0 p-4 md:p-5 lg:col-span-1">
-          <div className="text-xs font-medium text-muted">{t.stats.dailyAverage}</div>
-          <div className="tabular mt-1 text-lg font-semibold tracking-tight break-words sm:text-xl xl:text-2xl">{money(dailyAvg, currency)}</div>
-          <div className="mt-2 text-xs text-muted">
-            {fmt(t.stats.projection, { amount: money(dailyAvg * days, currency) })}
-          </div>
-        </div>
-      </div>
+      <StatTiles
+        spendingLabel={t.stats.monthSpending}
+        expense={summary.expense}
+        income={summary.income}
+        prev={prev}
+        currency={currency}
+        vsLabel={t.delta.vsPrevious}
+        noPrevious={t.delta.noPrevious}
+        fourth={{ label: t.stats.dailyAverage, value: money(dailyAvg, currency), note: fmt(t.stats.projection, { amount: money(dailyAvg * days, currency) }) }}
+      />
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card
-          className="lg:col-span-2"
-          title={t.trend.title}
-          subtitle={t.trend.subtitle}
+          title={t.byCategory.title}
+          subtitle={monthLabel(month)}
+          actions={
+            uncategorized ? (
+              <Link href={`/transactions?month=${month}&categoryId=none`}>
+                <Badge tone="warn">{fmt(t.byCategory.uncategorized, { amount: money(uncategorized.total, currency) })}</Badge>
+              </Link>
+            ) : null
+          }
         >
-          <TrendChart data={trendData} symbol={symbol} />
-        </Card>
-
-        <Card title={t.byCategory.title} subtitle={monthLabel(month)} actions={uncategorized ? <Link href={`/transactions?month=${month}&categoryId=none`}><Badge tone="warn">{fmt(t.byCategory.uncategorized, { amount: money(uncategorized.total, currency) })}</Badge></Link> : null}>
           {byCategory.length === 0 ? (
             <Empty>{t.noSpending}</Empty>
           ) : (
-            <div className="-mr-2 max-h-72 space-y-1 overflow-y-auto overscroll-contain pr-2">
-              {byCategory.slice(0, 8).map((c) => (
+            <div className="space-y-1">
+              {byCategory.slice(0, 5).map((c) => (
                 <HBar
                   key={c.id ?? "none"}
                   label={<span className="flex items-center gap-2"><CategoryIcon name={c.icon} className="size-4 shrink-0 text-ink-2" />{c.name}</span>}
@@ -212,72 +147,20 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
                   href={`/transactions?month=${month}&categoryId=${c.id ?? "none"}`}
                 />
               ))}
-              {byCategory.length > 8 && (
+              {byCategory.length > 5 && (
                 <HBar
                   label={t.byCategory.other}
-                  value={byCategory.slice(8).reduce((a, b) => a + b.total, 0)}
+                  value={byCategory.slice(5).reduce((a, b) => a + b.total, 0)}
                   max={maxCat}
-                  display={money(byCategory.slice(8).reduce((a, b) => a + b.total, 0), currency)}
+                  display={money(byCategory.slice(5).reduce((a, b) => a + b.total, 0), currency)}
                   tone="muted"
                 />
               )}
             </div>
           )}
-        </Card>
-
-        <Card
-          className="lg:col-span-2"
-          title={t.daily.title}
-          subtitle={peakDay.total > 0 ? fmt(t.daily.peak, { day: peakDay.day, amount: money(peakDay.total, currency) }) : monthLabel(month)}
-        >
-          <DailyChart data={dailyData} symbol={symbol} monthName={lower(monthLabel(month).split(" ")[0])} />
-        </Card>
-
-        <Card title={t.byAccount.title} subtitle={t.byAccount.subtitle}>
-          {byAccount.length === 0 ? (
-            <Empty>{t.noSpending}</Empty>
-          ) : (
-            // Alto máximo igual al gráfico diario (h-48) para no estirar la fila; el resto con scroll
-            <div className="-mr-2 max-h-48 space-y-1 overflow-y-auto overscroll-contain pr-2">
-              {byAccount.map((a) => (
-                <HBar
-                  key={`${a.id}-${a.name}`}
-                  label={
-                    <span>
-                      {a.name}
-                      {a.identifiers?.length ? <span className="ml-1.5 text-xs text-muted">•••• {a.identifiers.join(", ")}</span> : null}
-                    </span>
-                  }
-                  value={a.total}
-                  max={maxAcc}
-                  display={money(a.total, currency)}
-                  href={a.id ? `/transactions?month=${month}&accountId=${a.id}` : `/transactions?month=${month}&accountId=none`}
-                  extra={<div className="mt-0.5 text-[11px] text-muted">{plural(a.count, t.txCount)}{a.type ? ` · ${getT().common.accountTypes[a.type]}` : ""}</div>}
-                />
-              ))}
-            </div>
-          )}
-        </Card>
-
-        <Card title={t.merchants.title} subtitle={monthLabel(month)}>
-          {merchants.length === 0 ? (
-            <Empty>{t.noSpending}</Empty>
-          ) : (
-            <div className="-mr-2 max-h-72 space-y-1 overflow-y-auto overscroll-contain pr-2">
-              {merchants.map((m) => (
-                <HBar
-                  key={m.name}
-                  label={m.name}
-                  value={m.total}
-                  max={maxMerchant}
-                  display={money(m.total, currency)}
-                  tone="muted"
-                  href={`/transactions?month=${month}&q=${encodeURIComponent(m.name)}`}
-                  extra={<div className="mt-0.5 text-[11px] text-muted">{plural(m.count, t.merchants.purchases)}</div>}
-                />
-              ))}
-            </div>
-          )}
+          <Link href={statsHref} className="btn-subtle mt-4 flex h-10 w-full items-center justify-center gap-2 text-sm">
+            <ChartPie className="size-4" /> {t.byCategory.viewStats}
+          </Link>
         </Card>
 
         <Card
@@ -328,24 +211,6 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
             </div>
           )}
         </Card>
-
-        {byCurrency.length > 1 && (
-          <Card title={t.byCurrency.title} subtitle={fmt(t.byCurrency.subtitle, { currency: baseCurrency })}>
-            <ul className="divide-y divide-line">
-              {byCurrency.map((c) => (
-                <li key={c.currency} className="flex items-center justify-between gap-3 py-2 text-sm">
-                  <Link href={`/?month=${month}&currency=${c.currency}`} className="min-w-0">
-                    <span className="block">{money(c.total, c.currency)}</span>
-                    <span className="text-[11px] text-muted">{plural(c.count, t.txCount)} · {c.currency}</span>
-                  </Link>
-                  <span className="tabular shrink-0 text-ink-2">
-                    {c.converted === null ? <Badge tone="warn">{t.byCurrency.noRate}</Badge> : `≈ ${money(c.converted)}`}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
 
         <Card title={t.balances.title} subtitle={t.balances.subtitle} actions={<Link href="/accounts" className="text-xs font-medium text-ink-2 hover:text-ink">{t.balances.viewAccounts}</Link>}>
           {balances.filter((b) => !b.archived && !b.linkedTo).length === 0 ? (

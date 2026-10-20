@@ -8,6 +8,7 @@ const en = {
   titleSuffix: "Finances",
   nav: {
     home: "Overview",
+    stats: "Stats",
     transactions: "Transactions",
     payments: "Payments",
     budget: "Budget",
@@ -35,6 +36,13 @@ const en = {
   errors: {
     invalidData: "Invalid data",
   },
+  notFound: {
+    metaTitle: "Page not found",
+    title: "This page doesn't exist",
+    description: "The link may be broken, or the page was moved or deleted.",
+    goHome: "Back to overview",
+    goWelcome: "Go to home page",
+  },
   accountTypes: {
     bank: "Bank account",
     credit_card: "Credit card",
@@ -58,6 +66,7 @@ const es: typeof en = {
   titleSuffix: "Finances",
   nav: {
     home: "Resumen",
+    stats: "Estadísticas",
     transactions: "Movimientos",
     payments: "Pagos",
     budget: "Presupuesto",
@@ -84,6 +93,13 @@ const es: typeof en = {
   },
   errors: {
     invalidData: "Datos inválidos",
+  },
+  notFound: {
+    metaTitle: "Página no encontrada",
+    title: "Esta página no existe",
+    description: "Puede que el enlace esté roto o que la página se haya movido o eliminado.",
+    goHome: "Volver al resumen",
+    goWelcome: "Ir al inicio",
   },
   accountTypes: {
     bank: "Cuenta bancaria",

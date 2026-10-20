@@ -4,7 +4,7 @@ import { markPaymentPaid } from "@/actions/payments";
 import { ActionForm, SubmitButton } from "@/components/action-form";
 import { CardPaymentForm, type QuickAmount } from "@/components/card-payment-form";
 import { CategoryIcon } from "@/components/category-icon";
-import { CreditCardPanel } from "@/components/credit-card-panel";
+import { CreditCardCompact, CreditCardPanel } from "@/components/credit-card-panel";
 import { DateField, Field, Switch } from "@/components/form/controls";
 import { Select } from "@/components/form/select";
 import { Sheet, SheetFooter } from "@/components/form/sheet";
@@ -27,7 +27,7 @@ export async function generateMetadata() {
   return { title: getT().payments.metaTitle };
 }
 
-type SP = Promise<{ new?: string; edit?: string; pay?: string; payCard?: string; back?: string }>;
+type SP = Promise<{ tab?: string; new?: string; edit?: string; pay?: string; payCard?: string; back?: string }>;
 
 function scheduleText(p: PaymentView) {
   const t = getT().payments;
@@ -36,14 +36,22 @@ function scheduleText(p: PaymentView) {
   return fmt(t.page.scheduleOther, { frequency: t.frequencies[p.frequency] ?? p.frequency, date: formatYmd(p.nextDue) });
 }
 
-function FinancingCard({ p }: { p: PaymentView }) {
-  const t = getT().payments;
+// Tabs de la página (?tab=…): el resumen es la vista por defecto, sin parámetro
+type Tab = "summary" | "cards" | Kind;
+
+/** Avance de un financiamiento: cuotas pagadas y si ya terminó */
+function progress(p: PaymentView) {
   const total = p.totalInstallments ?? 0;
   const paid = Math.max(0, (p.currentInstallment ?? 1) - 1);
   const done = !p.active && paid + 1 >= total;
-  const pct = total ? ((done ? total : paid) / total) * 100 : 0;
+  return { total, done, pct: total ? ((done ? total : paid) / total) * 100 : 0 };
+}
+
+function FinancingCard({ p, href }: { p: PaymentView; href: string }) {
+  const t = getT().payments;
+  const { total, done, pct } = progress(p);
   return (
-    <Link href={`/payments?edit=${p.id}`} scroll={false} className={`card block p-5 transition hover:border-line-strong active:scale-[0.99] ${p.active ? "" : "opacity-60"}`}>
+    <Link href={href} scroll={false} className={`card block p-5 transition hover:border-line-strong active:scale-[0.99] ${p.active ? "" : "opacity-60"}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <IconBubble>
@@ -87,11 +95,52 @@ function FinancingCard({ p }: { p: PaymentView }) {
   );
 }
 
-function PaymentListRow({ p }: { p: PaymentView }) {
+/** Financiamiento en el resumen: nombre, cuota y barra de avance */
+function FinancingCompact({ p, href }: { p: PaymentView; href: string }) {
   const t = getT().payments;
+  const { total, done, pct } = progress(p);
+  return (
+    <Link href={href} scroll={false} className={`card block p-3.5 transition hover:border-line-strong active:scale-[0.99] ${p.active ? "" : "opacity-60"}`}>
+      <div className="flex items-center gap-3">
+        <IconBubble size="sm">
+          <CategoryIcon name={p.icon} className="size-3.5" />
+        </IconBubble>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold">{p.name}</span>
+          <span className="block truncate text-[11px] text-muted">
+            {done ? t.page.finished : `${p.currentInstallment ?? 1}/${total} · ${p.active ? dueLabel(p.daysLeft, t.due) : t.page.paused}`}
+          </span>
+        </span>
+        <span className="tabular shrink-0 text-sm font-semibold">{amountText(p)}</span>
+      </div>
+      <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-surface-2">
+        <div className="h-full rounded-full bg-ink" style={{ width: `${pct}%` }} />
+      </div>
+    </Link>
+  );
+}
+
+function PaymentListRow({ p, href, compact = false }: { p: PaymentView; href: string; compact?: boolean }) {
+  const t = getT().payments;
+  if (compact) {
+    return (
+      <li>
+        <Link href={href} scroll={false} className={`flex items-center gap-3 px-3.5 py-2.5 transition hover:bg-surface-2/50 ${p.active ? "" : "opacity-60"}`}>
+          <IconBubble size="sm">
+            <CategoryIcon name={p.icon} className="size-3.5" />
+          </IconBubble>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
+          <span className="shrink-0 text-right">
+            <span className="tabular block text-sm font-semibold">{amountText(p)}</span>
+            <span className={`block text-[11px] ${p.active && p.daysLeft < 0 ? "text-bad" : "text-muted"}`}>{p.active ? dueLabel(p.daysLeft, t.due) : t.page.paused}</span>
+          </span>
+        </Link>
+      </li>
+    );
+  }
   return (
     <li>
-      <Link href={`/payments?edit=${p.id}`} scroll={false} className={`flex items-center gap-3 px-4 py-3.5 transition hover:bg-surface-2/50 ${p.active ? "" : "opacity-60"}`}>
+      <Link href={href} scroll={false} className={`flex items-center gap-3 px-4 py-3.5 transition hover:bg-surface-2/50 ${p.active ? "" : "opacity-60"}`}>
         <IconBubble>
           <CategoryIcon name={p.icon} className="size-4.5" />
         </IconBubble>
@@ -109,16 +158,39 @@ function PaymentListRow({ p }: { p: PaymentView }) {
   );
 }
 
+/** Bloque del resumen con enlace a su tab */
+function SummarySection({ title, count, href, children }: { title: string; count: number; href: string; children: React.ReactNode }) {
+  return (
+    <section className="mt-8">
+      <div className="mb-3 flex items-end justify-between gap-3 px-1">
+        <h2 className="text-[15px] font-semibold tracking-tight">
+          {title} <span className="font-normal text-muted">· {count}</span>
+        </h2>
+        <Link href={href} className="flex items-center gap-0.5 text-xs font-medium text-ink-2 hover:text-ink">
+          {getT().payments.page.seeAll} <ChevronRight className="size-3.5" />
+        </Link>
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export default async function PaymentsPage({ searchParams }: { searchParams: SP }) {
   await requireAuth();
   const dict = getT();
   const t = dict.payments;
   const sp = await searchParams;
-  const back = sp.back && /^\/(?![/\\])/.test(sp.back) ? sp.back : "/payments";
   const { baseCurrency, currencies } = appSettings();
   const today = todayYmd();
   const [list, accountList, categoryList, cards] = await Promise.all([listPayments(), allAccounts(), allCategories(), creditCardSummaries()]);
   const totals = paymentTotals(list);
+
+  // Los enlaces y los formularios conservan el tab abierto
+  const tab: Tab = sp.tab === "cards" && cards.length > 0 ? "cards" : sp.tab && sp.tab in PAYMENT_KINDS ? (sp.tab as Kind) : "summary";
+  const tabHref = (id: Tab) => (id === "summary" ? "/payments" : `/payments?tab=${id}`);
+  const base = tabHref(tab);
+  const link = (query: string) => `${base}${tab === "summary" ? "?" : "&"}${query}`;
+  const back = sp.back && /^\/(?![/\\])/.test(sp.back) ? sp.back : base;
 
   const active = list.filter((p) => p.active);
   const upcoming = active.filter((p) => p.daysLeft <= 30);
@@ -188,115 +260,167 @@ export default async function PaymentsPage({ searchParams }: { searchParams: SP 
     .filter((a) => !a.archived)
     .map((a) => ({ value: String(a.id), label: a.name, hint: [a.currency, a.identifiers.length ? `•••• ${a.identifiers.join(", ")}` : null].filter(Boolean).join(" · ") }));
 
+  const kinds = Object.keys(PAYMENT_KINDS) as Kind[];
+  const tabs: { id: Tab; label: string; count: number }[] = [
+    { id: "summary", label: t.page.tabs.summary, count: 0 },
+    ...(cards.length > 0 ? [{ id: "cards" as Tab, label: t.page.tabs.cards, count: cards.length }] : []),
+    ...kinds.map((k) => ({ id: k as Tab, label: t.kinds[k].plural, count: byKind(k).length })),
+  ];
+  const addKind = tab in PAYMENT_KINDS ? tab : "service";
+
   return (
     <>
       <PageHeader
         title={t.title}
         subtitle={t.subtitle}
         actions={
-          <Link href="/payments?new=service" scroll={false} className="btn-primary">
+          <Link href={link(`new=${addKind}`)} scroll={false} className="btn-primary">
             <Plus className="size-4" /> {t.newPayment}
           </Link>
         }
       />
 
-      {cards.length > 0 && (
-        <section className="mb-8">
-          <div className="mb-3 px-1">
-            <h2 className="text-[15px] font-semibold tracking-tight">
-              {dict.cards.title} <span className="font-normal text-muted">· {cards.length}</span>
-            </h2>
-            <p className="text-xs text-muted">{dict.cards.subtitle}</p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {cards.map((c) => (
-              <CreditCardPanel key={c.account.id} s={c} />
-            ))}
-          </div>
-        </section>
+      {(list.length > 0 || cards.length > 0) && (
+        <nav className="-mx-4 mb-6 flex gap-1.5 overflow-x-auto px-4 md:mx-0 md:px-0">
+          {tabs.map((x) => (
+            <Link
+              key={x.id}
+              href={tabHref(x.id)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition ${
+                x.id === tab ? "bg-ink text-bg" : "text-ink-2 hover:bg-surface-2 hover:text-ink"
+              }`}
+            >
+              {x.label}
+              {x.count > 0 && <span className="tabular text-xs opacity-60">{x.count}</span>}
+            </Link>
+          ))}
+        </nav>
       )}
 
-      {list.length === 0 ? (
-        <Empty icon={<CalendarClock className="size-5" />}>
-          <span className="max-w-sm">{t.page.emptyIntro}</span>
-          <div className="mt-2 flex flex-wrap justify-center gap-2">
-            {(Object.entries(PAYMENT_KINDS) as [Kind, (typeof PAYMENT_KINDS)[Kind]][]).map(([k, info]) => (
-              <Link key={k} href={`/payments?new=${k}`} scroll={false} className="chip">
-                <CategoryIcon name={info.icon} className="size-3.5" /> {t.kinds[k].label}
-              </Link>
-            ))}
-          </div>
-        </Empty>
-      ) : (
+      {tab === "summary" && (
         <>
-          {/* Cifras */}
-          <div className="mb-6 grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3">
-            <div className="col-span-2 min-w-0 rounded-2xl bg-ink p-5 text-bg shadow-pop lg:col-span-1">
-              <div className="text-xs font-medium text-bg/60">{t.page.next7Days}</div>
-              <div className="tabular mt-1 text-3xl font-semibold tracking-tight break-words">{money(totals.week)}</div>
-              <div className="mt-2 text-xs text-bg/60">
-                {plural(totals.weekCount, t.page.weekCount)}
-              </div>
-            </div>
-            <div className="card min-w-0 p-4 md:p-5">
-              <div className="text-xs font-medium text-muted">{t.page.monthlyCommitment}</div>
-              <div className="tabular mt-1 text-lg font-semibold tracking-tight break-words sm:text-xl xl:text-2xl">{money(totals.monthly)}</div>
-              <div className="mt-2 text-xs text-muted">{fmt(t.page.fixedAmountsIn, { currency: baseCurrency })}</div>
-            </div>
-            <div className="card min-w-0 p-4 md:p-5">
-              <div className="text-xs font-medium text-muted">{t.page.installmentDebt}</div>
-              <div className="tabular mt-1 text-lg font-semibold tracking-tight break-words sm:text-xl xl:text-2xl">{money(totals.debt)}</div>
-              <div className="mt-2 text-xs text-muted">{t.page.installmentDebtHint}</div>
-            </div>
-          </div>
-
-          {/* Próximos */}
-          <Card title={t.page.next30Days} subtitle={t.page.next30Subtitle} padded={false} className="mb-8">
-            {upcoming.length === 0 ? (
-              <div className="px-5 pb-5">
-                <Empty>{t.page.next30Empty}</Empty>
-              </div>
-            ) : (
-              <ul className="divide-y divide-line border-t border-line">
-                {upcoming.map((p) => (
-                  <PaymentDueRow key={p.id} p={p} back="/payments" />
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          {(Object.keys(PAYMENT_KINDS) as Kind[]).map((k) => {
-            const items = byKind(k);
-            return (
-              <section key={k} className="mt-8">
-                <div className="mb-3 flex items-end justify-between gap-3 px-1">
-                  <h2 className="text-[15px] font-semibold tracking-tight">
-                    {t.kinds[k].plural} {items.length > 0 && <span className="font-normal text-muted">· {items.length}</span>}
-                  </h2>
-                  <Link href={`/payments?new=${k}`} scroll={false} className="flex items-center gap-1 text-xs font-medium text-ink-2 hover:text-ink">
-                    <Plus className="size-3.5" /> {dict.common.actions.add}
+          {list.length === 0 ? (
+            <Empty icon={<CalendarClock className="size-5" />}>
+              <span className="max-w-sm">{t.page.emptyIntro}</span>
+              <div className="mt-2 flex flex-wrap justify-center gap-2">
+                {(Object.entries(PAYMENT_KINDS) as [Kind, (typeof PAYMENT_KINDS)[Kind]][]).map(([k, info]) => (
+                  <Link key={k} href={`/payments?new=${k}`} scroll={false} className="chip">
+                    <CategoryIcon name={info.icon} className="size-3.5" /> {t.kinds[k].label}
                   </Link>
+                ))}
+              </div>
+            </Empty>
+          ) : (
+            <>
+              {/* Cifras */}
+              <div className="mb-6 grid grid-cols-3 gap-2 md:gap-3">
+                <div className="min-w-0 rounded-2xl bg-ink p-3 text-bg shadow-pop md:p-4">
+                  <div className="truncate text-[11px] font-medium text-bg/60">{t.page.next7Days}</div>
+                  <div className="tabular mt-0.5 text-[15px] font-semibold tracking-tight break-words md:text-xl">{money(totals.week)}</div>
+                  <div className="mt-1 hidden truncate text-[11px] text-bg/60 sm:block">{plural(totals.weekCount, t.page.weekCount)}</div>
                 </div>
-                {items.length === 0 ? (
-                  <Empty>{t.page.kindEmpty[k]}</Empty>
-                ) : k === "financing" ? (
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="card min-w-0 p-3 md:p-4">
+                  <div className="truncate text-[11px] font-medium text-muted">{t.page.monthlyCommitment}</div>
+                  <div className="tabular mt-0.5 text-[15px] font-semibold tracking-tight break-words md:text-xl">{money(totals.monthly)}</div>
+                  <div className="mt-1 hidden truncate text-[11px] text-muted sm:block">{fmt(t.page.fixedAmountsIn, { currency: baseCurrency })}</div>
+                </div>
+                <div className="card min-w-0 p-3 md:p-4">
+                  <div className="truncate text-[11px] font-medium text-muted">{t.page.installmentDebt}</div>
+                  <div className="tabular mt-0.5 text-[15px] font-semibold tracking-tight break-words md:text-xl">{money(totals.debt)}</div>
+                  <div className="mt-1 hidden truncate text-[11px] text-muted sm:block">{t.page.installmentDebtHint}</div>
+                </div>
+              </div>
+
+              {/* Próximos */}
+              <Card title={t.page.next30Days} subtitle={t.page.next30Subtitle} padded={false}>
+                {upcoming.length === 0 ? (
+                  <div className="px-5 pb-5">
+                    <Empty>{t.page.next30Empty}</Empty>
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-line border-t border-line">
+                    {upcoming.map((p) => (
+                      <PaymentDueRow key={p.id} p={p} back="/payments" />
+                    ))}
+                  </ul>
+                )}
+              </Card>
+            </>
+          )}
+
+          {cards.length > 0 && (
+            <SummarySection title={dict.cards.title} count={cards.length} href={tabHref("cards")}>
+              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                {cards.map((c) => (
+                  <CreditCardCompact key={c.account.id} s={c} href={tabHref("cards")} payHref={`/payments?payCard=${c.account.id}`} />
+                ))}
+              </div>
+            </SummarySection>
+          )}
+
+          {kinds.map((k) => {
+            const items = byKind(k);
+            if (items.length === 0) return null;
+            return (
+              <SummarySection key={k} title={t.kinds[k].plural} count={items.length} href={tabHref(k)}>
+                {k === "financing" ? (
+                  <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                     {items.map((p) => (
-                      <FinancingCard key={p.id} p={p} />
+                      <FinancingCompact key={p.id} p={p} href={`/payments?edit=${p.id}`} />
                     ))}
                   </div>
                 ) : (
                   <ul className="card divide-y divide-line overflow-hidden">
                     {items.map((p) => (
-                      <PaymentListRow key={p.id} p={p} />
+                      <PaymentListRow key={p.id} p={p} href={`/payments?edit=${p.id}`} compact />
                     ))}
                   </ul>
                 )}
-              </section>
+              </SummarySection>
             );
           })}
         </>
       )}
+
+      {tab === "cards" && (
+        <>
+          <p className="mb-3 px-1 text-xs text-muted">{dict.cards.subtitle}</p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {cards.map((c) => (
+              <CreditCardPanel key={c.account.id} s={c} payHref={link(`payCard=${c.account.id}`)} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {tab in PAYMENT_KINDS &&
+        (() => {
+          const k = tab as Kind;
+          const items = byKind(k);
+          if (items.length === 0) {
+            return (
+              <Empty icon={<CategoryIcon name={PAYMENT_KINDS[k].icon} className="size-5" />}>
+                <span className="max-w-sm">{t.page.kindEmpty[k]}</span>
+                <Link href={link(`new=${k}`)} scroll={false} className="chip mt-2">
+                  <Plus className="size-3.5" /> {dict.common.actions.add}
+                </Link>
+              </Empty>
+            );
+          }
+          return k === "financing" ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map((p) => (
+                <FinancingCard key={p.id} p={p} href={link(`edit=${p.id}`)} />
+              ))}
+            </div>
+          ) : (
+            <ul className="card divide-y divide-line overflow-hidden">
+              {items.map((p) => (
+                <PaymentListRow key={p.id} p={p} href={link(`edit=${p.id}`)} />
+              ))}
+            </ul>
+          );
+        })()}
 
       {formInitial && (
         <Sheet

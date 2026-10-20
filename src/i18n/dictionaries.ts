@@ -15,10 +15,11 @@ import landing from "./messages/landing";
 import legal from "./messages/legal";
 import payments from "./messages/payments";
 import settings from "./messages/settings";
+import stats from "./messages/stats";
 import transactions from "./messages/transactions";
 import ui from "./messages/ui";
 
-const sections = { common, landing, legal, auth, dashboard, transactions, budget, accounts, categories, payments, cards, email, settings, forms, ui };
+const sections = { common, landing, legal, auth, dashboard, stats, transactions, budget, accounts, categories, payments, cards, email, settings, forms, ui };
 
 type Sections = typeof sections;
 export type Dictionary = { [K in keyof Sections]: Sections[K]["en"] };

@@ -20,6 +20,13 @@
   --series-income: #b5b5b5;
   --series-expense: #0a0a0a;
   --series-1: #0a0a0a;
+  /* Escala de grises para porciones de dona (de mayor a menor; la 6 es "Otras") */
+  --pie-1: #0a0a0a;
+  --pie-2: #474747;
+  --pie-3: #737373;
+  --pie-4: #9e9e9e;
+  --pie-5: #c4c4c4;
+  --pie-6: #e3e3e3;
   --overlay: rgba(10, 10, 10, 0.35);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -8px rgba(0, 0, 0, 0.08);
   --shadow-pop: 0 12px 40px -8px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.06);
@@ -45,6 +52,12 @@
     --series-income: #4a4a4a;
     --series-expense: #f5f5f5;
     --series-1: #f5f5f5;
+    --pie-1: #f5f5f5;
+    --pie-2: #bdbdbd;
+    --pie-3: #8a8a8a;
+    --pie-4: #616161;
+    --pie-5: #434343;
+    --pie-6: #2c2c2c;
     --overlay: rgba(0, 0, 0, 0.6);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-pop: 0 16px 48px -8px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);
@@ -167,7 +180,18 @@ body {
   }
 }
 
-/* Selector de fecha nativo más limpio */
+/* Selector de fecha nativo más limpio.
+   En iOS/WebKit el input de fecha tiene un ancho mínimo intrínseco que ignora `w-full`
+   y desborda su contenedor; sin `appearance` y con min-width 0 se ajusta al ancho dado. */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  display: block;
+}
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}
 input[type="date"]::-webkit-calendar-picker-indicator {
   opacity: 0.5;
   cursor: pointer;

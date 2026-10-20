@@ -14,7 +14,7 @@ function amounts(list: CardCurrency[], pick: (c: CardCurrency) => number | null,
 }
 
 /** Estado de una tarjeta de crédito: deuda total (contado + financiado), pago de contado del ciclo y pagos. */
-export function CreditCardPanel({ s }: { s: CardSummary }) {
+export function CreditCardPanel({ s, payHref = `/payments?payCard=${s.account.id}` }: { s: CardSummary; payHref?: string }) {
   const dict = getT();
   const t = dict.cards;
   const a = s.account;
@@ -36,7 +36,7 @@ export function CreditCardPanel({ s }: { s: CardSummary }) {
             </div>
           </div>
         </div>
-        <Link href={`/payments?payCard=${a.id}`} scroll={false} className="inline-flex h-8 shrink-0 items-center rounded-full bg-ink px-3.5 text-xs font-medium text-bg transition active:scale-95">
+        <Link href={payHref} scroll={false} className="inline-flex h-8 shrink-0 items-center rounded-full bg-ink px-3.5 text-xs font-medium text-bg transition active:scale-95">
           {t.pay}
         </Link>
       </div>
@@ -114,6 +114,50 @@ export function CreditCardPanel({ s }: { s: CardSummary }) {
             : t.noPayments}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Versión reducida para el resumen de /payments: deuda total, pago de contado pendiente y botón de pagar. */
+export function CreditCardCompact({ s, href, payHref }: { s: CardSummary; href: string; payHref: string }) {
+  const dict = getT();
+  const t = dict.cards;
+  const a = s.account;
+  const payoffLeft = s.currencies.some((c) => (c.payoff ?? 0) > 0);
+  const hadStatementDebt = s.currencies.some((c) => (c.statementDebt ?? 0) > 0);
+  const overdue = payoffLeft && s.daysLeft !== null && s.daysLeft < 0;
+  const last4 = a.identifiers.length ? `•••• ${a.identifiers.join(", ")}` : null;
+
+  return (
+    <div className="card flex items-center gap-3 p-3.5">
+      <Link href={href} scroll={false} className="flex min-w-0 flex-1 items-center gap-3">
+        <IconBubble size="sm">
+          <CreditCard className="size-3.5" />
+        </IconBubble>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold">{a.name}</span>
+          <span className="block truncate text-[11px] text-muted">
+            {!s.statement ? (
+              last4 || a.institution || dict.common.accountTypes.credit_card
+            ) : payoffLeft ? (
+              <>
+                {t.payoff} <span className="tabular text-ink-2">{amounts(s.currencies, (c) => c.payoff, a.currency)}</span>
+                {s.daysLeft !== null && <span className={overdue ? "font-medium text-bad" : ""}> · {dueLabel(s.daysLeft, dict.payments.due)}</span>}
+              </>
+            ) : hadStatementDebt ? (
+              t.payoffDone
+            ) : (
+              t.noStatementDebt
+            )}
+          </span>
+        </span>
+      </Link>
+      <span className="flex shrink-0 flex-col items-end gap-1">
+        <span className="tabular text-sm font-semibold">{amounts(s.currencies, (c) => c.total, a.currency)}</span>
+        <Link href={payHref} scroll={false} className="inline-flex h-6 items-center rounded-full bg-ink px-2.5 text-[11px] font-medium text-bg transition active:scale-95">
+          {dict.payments.row.pay}
+        </Link>
+      </span>
     </div>
   );
 }

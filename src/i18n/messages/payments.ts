@@ -149,6 +149,8 @@ const en = {
     recordHintDeposit: "It's recorded as a transfer (or income) to the destination account.",
     recordHintExpense: "It's added as an expense in Transactions and counts toward your budget.",
     markPaid: "Mark as paid",
+    tabs: { summary: "Summary", cards: "Cards" },
+    seeAll: "See all",
   },
   row: {
     pay: "Pay",
@@ -381,6 +383,8 @@ const es: typeof en = {
     recordHintDeposit: "Se registra como transferencia (o ingreso) a la cuenta de destino.",
     recordHintExpense: "Se agrega como gasto en Movimientos y cuenta para tu presupuesto.",
     markPaid: "Marcar como pagado",
+    tabs: { summary: "Resumen", cards: "Tarjetas" },
+    seeAll: "Ver todo",
   },
   row: {
     pay: "Pagar",

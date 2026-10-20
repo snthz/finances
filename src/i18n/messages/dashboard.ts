@@ -30,28 +30,13 @@ const en = {
     dailyAverage: "Daily average",
     projection: "projected for the month: {amount}",
   },
-  trend: {
-    title: "Income vs spending",
-    subtitle: "Last 12 months",
-  },
   byCategory: {
     title: "Spending by category",
     uncategorized: "{amount} uncategorized",
     other: "Other",
+    viewStats: "View stats",
   },
   noSpending: "No spending this month",
-  daily: {
-    title: "Daily spending",
-    peak: "Highest spending day: {day} ({amount})",
-  },
-  byAccount: {
-    title: "By card / account",
-    subtitle: "Spending this month",
-  },
-  merchants: {
-    title: "Top merchants",
-    purchases: { one: "{n} purchase", other: "{n} purchases" },
-  },
   budget: {
     title: "Budget",
     subtitle: "{month} · in {currency}",
@@ -60,11 +45,6 @@ const en = {
     of: "of {amount}",
     budgetStreak: "Budget streak: {n}",
     savingsStreak: "Savings streak: {n}",
-  },
-  byCurrency: {
-    title: "Spending by currency",
-    subtitle: "Original amount and equivalent in {currency}",
-    noRate: "no rate",
   },
   balances: {
     title: "Balances",
@@ -109,28 +89,13 @@ const es: typeof en = {
     dailyAverage: "Promedio diario",
     projection: "proyección del mes {amount}",
   },
-  trend: {
-    title: "Ingresos vs gastos",
-    subtitle: "Últimos 12 meses",
-  },
   byCategory: {
     title: "Gastos por categoría",
     uncategorized: "{amount} sin categoría",
     other: "Otras",
+    viewStats: "Ver estadísticas",
   },
   noSpending: "Sin gastos este mes",
-  daily: {
-    title: "Gasto diario",
-    peak: "Día de mayor gasto: {day} ({amount})",
-  },
-  byAccount: {
-    title: "Por tarjeta / cuenta",
-    subtitle: "Gastos del mes",
-  },
-  merchants: {
-    title: "Principales comercios",
-    purchases: { one: "{n} compra", other: "{n} compras" },
-  },
   budget: {
     title: "Presupuesto",
     subtitle: "{month} · en {currency}",
@@ -139,11 +104,6 @@ const es: typeof en = {
     of: "de {amount}",
     budgetStreak: "Racha de presupuesto: {n}",
     savingsStreak: "Racha de ahorro: {n}",
-  },
-  byCurrency: {
-    title: "Gastos por moneda",
-    subtitle: "Monto original y equivalente en {currency}",
-    noRate: "sin tasa",
   },
   balances: {
     title: "Saldos",

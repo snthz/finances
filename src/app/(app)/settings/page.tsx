@@ -117,7 +117,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: SP 
   const tr = getT().settings.page;
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto ">
       <PageHeader title={tr.title} subtitle={user.email} />
       <div className="md:grid md:grid-cols-[176px_minmax(0,1fr)] md:gap-10">
         <nav className="-mx-4 mb-6 flex gap-1.5 overflow-x-auto px-4 md:sticky md:top-10 md:mx-0 md:mb-0 md:flex-col md:gap-0.5 md:self-start md:px-0">

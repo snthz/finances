@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, CreditCard, LayoutGrid, ListOrdered, Mail, Plus, Settings, Shapes, Target } from "lucide-react";
+import { CalendarClock, ChartPie, CreditCard, LayoutGrid, ListOrdered, Mail, Plus, Settings, Shapes, Target } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useT } from "@/i18n/client";
@@ -12,8 +12,10 @@ type NavKey = keyof Dictionary["common"]["nav"];
 const LINKS = [
   { href: "/", label: "home" as NavKey, icon: LayoutGrid, mobile: true },
   { href: "/transactions", label: "transactions" as NavKey, icon: ListOrdered, mobile: true },
+  { href: "/stats", label: "stats" as NavKey, icon: ChartPie, mobile: true },
   { href: "/payments", label: "payments" as NavKey, icon: CalendarClock, mobile: true },
-  { href: "/budget", label: "budget" as NavKey, icon: Target, mobile: true },
+  // En móvil se llega desde la tarjeta de presupuesto del resumen
+  { href: "/budget", label: "budget" as NavKey, icon: Target, mobile: false },
   { href: "/accounts", label: "accounts" as NavKey, icon: CreditCard, mobile: true },
   { href: "/categories", label: "categories" as NavKey, icon: Shapes, mobile: false },
   // En móvil se llega desde Ajustes → Correos
